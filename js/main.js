@@ -9,7 +9,7 @@ import {
   spotifyWebUrl,
 } from "./format.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
-import { getCurrentUser, getPlaybackState, getContextName, getDevices, resumePlayback, playbackControl } from "./spotifyApi.js";
+import { getCurrentUser, getPlaybackState, getContextMeta, getDevices, resumePlayback, playbackControl } from "./spotifyApi.js";
 import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, contextKey } from "./firebaseBookmarks.js";
 
 const el = {
@@ -179,13 +179,27 @@ function renderNowPlaying() {
 
 async function buildBookmarkFromSnapshot(snapshot) {
   const { type, id, uri, name } = snapshot.context;
-  const contextName = name ?? (await getContextName(type, id)) ?? `Unknown ${type}`;
+
+  // The bookmark's thumbnail is the playlist/album *cover*. For an album,
+  // the playing track's art is already that cover — no extra call. For a
+  // playlist, fetch it (cached); fall back to the track art if it can't be
+  // read (e.g. an editorial playlist).
+  let contextName = name;
+  let coverUrl = null;
+  if (type === "album") {
+    coverUrl = snapshot.track.imageUrl ?? null;
+  } else {
+    const meta = await getContextMeta(type, id);
+    contextName = contextName ?? meta.name;
+    coverUrl = meta.imageUrl;
+  }
+
   return {
     contextType: type,
     contextId: id,
     contextUri: uri,
-    contextName,
-    imageUrl: snapshot.track.imageUrl ?? null,
+    contextName: contextName ?? `Unknown ${type}`,
+    imageUrl: coverUrl ?? snapshot.track.imageUrl ?? null,
     trackId: snapshot.track.id,
     trackUri: snapshot.track.uri,
     trackName: snapshot.track.name,
@@ -487,10 +501,9 @@ async function runPoll() {
   // layers your custom bookmark name on top of this.
   if (snapshot?.context && !snapshot.context.name) {
     try {
-      snapshot.context.name = await getContextName(
-        snapshot.context.type,
-        snapshot.context.id,
-      );
+      snapshot.context.name = (
+        await getContextMeta(snapshot.context.type, snapshot.context.id)
+      ).name;
     } catch {
       /* leave name null — the card falls back to "In a playlist" */
     }

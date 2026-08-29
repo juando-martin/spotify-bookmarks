@@ -1,10 +1,10 @@
 // Thin wrapper around the Spotify Web API endpoints this app needs.
 
 import { getAccessToken } from "./auth.js";
-import { normalizePlaybackState } from "./format.js";
+import { normalizePlaybackState, smallestImageUrl } from "./format.js";
 
 const API_BASE = "https://api.spotify.com/v1";
-const contextNameCache = new Map();
+const contextMetaCache = new Map();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -58,23 +58,25 @@ export async function getPlaybackState() {
 }
 
 /**
- * Playlist/album display name, cached in memory for the session. Returns
- * null when the name can't be read (a transient error, or an editorial
- * playlist a Development-Mode app isn't allowed to fetch) — the caller
- * decides what to show in that case.
+ * Playlist/album metadata — `{ name, imageUrl }` — cached in memory for the
+ * session. imageUrl is the playlist/album *cover* (not any track's art).
+ * Both fields are null when it can't be read (a transient error, or an
+ * editorial playlist a Development-Mode app isn't allowed to fetch); the
+ * caller decides what to fall back to.
  */
-export async function getContextName(type, id) {
+export async function getContextMeta(type, id) {
   const cacheKey = `${type}:${id}`;
-  if (contextNameCache.has(cacheKey)) {
-    return contextNameCache.get(cacheKey);
+  if (contextMetaCache.has(cacheKey)) {
+    return contextMetaCache.get(cacheKey);
   }
   const path =
-    type === "playlist" ? `/playlists/${id}?fields=name` : `/albums/${id}`;
+    type === "playlist" ? `/playlists/${id}?fields=name,images` : `/albums/${id}`;
   const res = await apiFetch(path);
-  if (!res.ok) return null; // don't cache — could be transient
-  const name = (await res.json()).name || null;
-  if (name) contextNameCache.set(cacheKey, name);
-  return name;
+  if (!res.ok) return { name: null, imageUrl: null }; // don't cache — could be transient
+  const data = await res.json();
+  const meta = { name: data.name || null, imageUrl: smallestImageUrl(data.images) };
+  if (meta.name || meta.imageUrl) contextMetaCache.set(cacheKey, meta);
+  return meta;
 }
 
 /** Spotify Connect devices this account can see (active or idle). */

@@ -111,7 +111,7 @@ export function normalizePlaybackState(data) {
           id: data.context.uri.split(":").pop(),
           uri: data.context.uri,
           // An album's name is already in the payload; a playlist's isn't,
-          // so that one stays null and getContextName() fetches it.
+          // so that one stays null and getContextMeta() fetches it.
           name: type === "album" ? album.name ?? null : null,
         }
       : null,

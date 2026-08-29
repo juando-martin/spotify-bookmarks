@@ -160,10 +160,13 @@ Redirect URI matches the real deployed URL).
 - The bookmark list is ordered most-recently-used first, where "used" means
   either saved (manual or auto) or resumed. Bookmarks created before this
   ordering existed fall back to their save time.
-- Each bookmark shows the album art of the bookmarked track (it rides along
-  in the playback payload, so it costs no extra API call). Bookmarks saved
-  before this feature have no stored image and show a blank tile until
-  re-saved.
+- A bookmark's thumbnail is the **playlist or album cover**. For an album
+  that's free (it's the playing track's art, already in the payload); for a
+  playlist it's one extra `GET /playlists/{id}` (cached for the session). If
+  the cover can't be read — an editorial playlist — it falls back to the
+  bookmarked track's album art. The Now playing card still shows the current
+  *track's* art, not the cover. Bookmarks saved before this show whatever
+  they stored until re-saved.
 - Reading a **private or collaborative** playlist's name needs the
   `playlist-read-private` / `playlist-read-collaborative` scopes (in
   `js/config.js`). If you added these to an existing install, **log out and
@@ -226,7 +229,7 @@ firestore.rules           Firestore security rules to paste into the Firebase co
 js/config.js              YOUR Spotify + Firebase config (fill in per steps above)
 js/pkce.js                PKCE code_verifier/code_challenge helpers
 js/auth.js                Spotify OAuth login/redirect/token refresh (shared single-flight)
-js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, transport, playlist name; 429 backoff)
+js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, transport, devices, playlist/album meta; 429 backoff)
 js/format.js              Pure helpers: formatting + playback-state normalization (unit-tested)
 js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist/album per user)
 js/version.js             APP_VERSION string — bump with sw.js CACHE_NAME each deploy
