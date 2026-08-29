@@ -198,11 +198,27 @@ js/config.js              YOUR Spotify + Firebase config (fill in per steps abov
 js/pkce.js                PKCE code_verifier/code_challenge helpers
 js/auth.js                Spotify OAuth login/redirect/token refresh (shared single-flight)
 js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, transport, playlist name; 429 backoff)
+js/format.js              Pure helpers: formatting + playback-state normalization (unit-tested)
 js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist/album per user)
 js/version.js             APP_VERSION string — bump with sw.js CACHE_NAME each deploy
 js/main.js                Wires it all together: UI, polling loop, auto-bookmark
+test/format.test.js       Unit tests for js/format.js
 icons/                    App icons for the PWA manifest
 ```
+
+## Development
+
+No build step — it's plain ES modules served as files. To run the unit tests
+(they cover `js/format.js`: formatting helpers, `normalizePlaybackState`,
+the bookmark sort key):
+
+```bash
+npm test        # == node --test  (needs Node 18+, no dependencies)
+```
+
+To try it locally, serve the folder over HTTP (module scripts need it) and
+register the Spotify redirect URI for that origin, e.g.
+`python3 -m http.server 8777` then visit `http://127.0.0.1:8777/`.
 
 ## Always-on auto-bookmark (optional)
 

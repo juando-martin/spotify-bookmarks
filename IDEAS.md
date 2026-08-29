@@ -4,10 +4,11 @@ Loose backlog — not tracked anywhere, pick items off as we feel like it.
 
 ## Done
 
-Original backlog: **#1–#10** (album name from payload, saved position on
-each bookmark, album-art thumbnails, relative timestamps, 429 backoff, pause
-polling when hidden, single-flight token refresh, device awareness on
-Resume, Undo on Remove, "Resume last played" PWA shortcut).
+Original backlog: **#1–#10** and **#12** (album name from payload, saved
+position on each bookmark, album-art thumbnails, relative timestamps, 429
+backoff, pause polling when hidden, single-flight token refresh, device
+awareness on Resume, Undo on Remove, "Resume last played" PWA shortcut,
+unit tests). Only **#11** (podcasts) is left.
 
 Added along the way:
 
@@ -29,10 +30,25 @@ Added along the way:
 - **Network-first service worker** — no double reload after deploys.
 - **Version marker** — `APP_VERSION` in `js/version.js`, shown in the
   footer and logged to console; bump it with `CACHE_NAME` in `sw.js`.
-- Misc: `escapeHtml` is attribute-safe; `getContextName` doesn't cache a
-  failed lookup; podcast-episode art fallback (`data.item.images`).
+- **Pure-logic extraction + unit tests** (#12) — `js/format.js` +
+  `test/format.test.js`.
+- Misc from the code review: overlapping `pollOnce` runs are now skipped
+  (re-entrancy guard); a rejected token (401) forces a real refresh instead
+  of re-reading the cached one; `enterApp()` failure surfaces an error
+  instead of an unhandled rejection; `escapeHtml` is a pure regex and
+  attribute-safe; `getContextName` doesn't cache a failed lookup;
+  podcast-episode art fallback (`data.item.images`).
 
 ## Remaining
+
+### 12 — DONE
+
+Pure logic extracted to `js/format.js` (`contextKey`, `escapeHtml`,
+`bookmarkName`, `formatDuration`, `formatRelative`, `spotifyWebUrl`,
+`smallestImageUrl`, `normalizePlaybackState`, `bookmarkUsedMs`). Covered by
+`test/format.test.js` (`node --test`, 20 tests, no deps). `getPlaybackState`
+is now just fetch + `normalizePlaybackState`. `escapeHtml` is a pure regex
+(no more `document.createElement`).
 
 ### 11. Podcast episode support
 
@@ -49,19 +65,6 @@ code path from playlist/album but a natural fit for "where was I".
 - **Files:** `js/spotifyApi.js` (`getPlaybackState` recognizes `episode`
   items / `show` context; `resumePlayback` branches on whether there's a
   context), `js/main.js`. `firestore.rules` unaffected.
-
-### 12. Unit tests for the pure logic
-
-No tests exist. The testable parts are the pure functions: playback
-snapshot normalization, `contextKey`, the MRU sort comparator, `formatDuration`
-/ `formatRelative`, `spotifyWebUrl`.
-
-- **Why:** guardrail for the normalization logic — most likely thing to
-  silently break on a Spotify payload change.
-- **Size:** small–medium.
-- **Files:** new `test/` dir; minor refactors to make the pure bits
-  importable in Node (they currently live in modules that also import the
-  Firebase CDN / touch `document`). `node --test`, no framework.
 
 ## Not planned (considered, deliberately skipped)
 

@@ -1,14 +1,10 @@
 // Thin wrapper around the Spotify Web API endpoints this app needs.
 
 import { getAccessToken } from "./auth.js";
+import { normalizePlaybackState } from "./format.js";
 
 const API_BASE = "https://api.spotify.com/v1";
 const contextNameCache = new Map();
-
-// Playback contexts we can bookmark and resume into. Spotify also reports
-// "artist" and "show" (podcast) contexts, but those don't resume to an
-// exact track+position the way playlists and albums do, so we ignore them.
-const RESUMABLE_CONTEXT_TYPES = new Set(["playlist", "album"]);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -23,7 +19,9 @@ async function apiFetch(path, options = {}, attempt = 0) {
   });
 
   if (res.status === 401 && attempt === 0) {
-    // Token might have just gone stale; force one refresh + retry.
+    // Token rejected — force a refresh (not just a re-read of the cached
+    // one, which the 30s expiry margin would otherwise hand back) and retry.
+    await getAccessToken(true).catch(() => {});
     return apiFetch(path, options, attempt + 1);
   }
 
@@ -40,15 +38,6 @@ async function apiFetch(path, options = {}, attempt = 0) {
   return res;
 }
 
-/** Pick the smallest image URL from a Spotify images array, or null. */
-function smallestImageUrl(images) {
-  if (!Array.isArray(images) || images.length === 0) return null;
-  const smallest = images.reduce((a, b) =>
-    (a.width || Infinity) <= (b.width || Infinity) ? a : b,
-  );
-  return smallest.url || null;
-}
-
 /** Who's logged in — needed as the key for storing bookmarks per user. */
 export async function getCurrentUser() {
   const res = await apiFetch("/me");
@@ -57,47 +46,15 @@ export async function getCurrentUser() {
 }
 
 /**
- * Get Playback State. Returns null when nothing is playing (204 No Content),
- * or a normalized snapshot describing the current track + playback context.
- * `context` is set only for resumable contexts (playlist or album); it's
- * null for anything else (a bare track, an artist radio, a podcast, …).
+ * Get Playback State. Returns null when nothing is playing (204 No Content)
+ * or when the item isn't playable, otherwise the normalized snapshot from
+ * normalizePlaybackState() (see js/format.js).
  */
 export async function getPlaybackState() {
   const res = await apiFetch("/me/player");
   if (res.status === 204) return null;
   if (!res.ok) throw new Error(`Failed to fetch playback state: ${res.status}`);
-
-  const data = await res.json();
-  if (!data || !data.item) return null;
-
-  const type = data.context?.type;
-  const isResumable = RESUMABLE_CONTEXT_TYPES.has(type);
-  const album = data.item.album || {};
-
-  return {
-    isPlaying: data.is_playing,
-    progressMs: data.progress_ms,
-    track: {
-      id: data.item.id,
-      uri: data.item.uri,
-      name: data.item.name,
-      artists: (data.item.artists || []).map((a) => a.name).join(", "),
-      albumName: album.name ?? null,
-      // Art rides along in this payload (album.images for tracks,
-      // item.images for podcast episodes), so thumbnails cost no extra call.
-      imageUrl: smallestImageUrl(album.images || data.item.images),
-    },
-    context: isResumable
-      ? {
-          type,
-          id: data.context.uri.split(":").pop(),
-          uri: data.context.uri,
-          // An album's name is already in the playback payload; a playlist's
-          // isn't, so that one stays null and getContextName() fetches it.
-          name: type === "album" ? album.name ?? null : null,
-        }
-      : null,
-  };
+  return normalizePlaybackState(await res.json());
 }
 
 /** Playlist/album display name, cached in memory for the session. */

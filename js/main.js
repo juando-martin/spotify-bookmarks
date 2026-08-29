@@ -1,5 +1,13 @@
 import { POLL_INTERVAL_MS } from "./config.js";
 import { APP_VERSION } from "./version.js";
+import {
+  bookmarkName,
+  bookmarkUsedMs,
+  escapeHtml,
+  formatDuration,
+  formatRelative,
+  spotifyWebUrl,
+} from "./format.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
 import { getCurrentUser, getPlaybackState, getContextName, getDevices, resumePlayback, playbackControl } from "./spotifyApi.js";
 import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, contextKey } from "./firebaseBookmarks.js";
@@ -103,35 +111,6 @@ function showToast(message, { actionLabel, onAction, ms = 3500 } = {}) {
   showToast._t = setTimeout(() => { el.toast.hidden = true; }, ms);
 }
 
-/** Milliseconds -> "m:ss" (or "h:mm:ss" past an hour). */
-function formatDuration(ms) {
-  const total = Math.max(0, Math.round((ms || 0) / 1000));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = String(total % 60).padStart(2, "0");
-  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
-}
-
-const relativeFmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-const RELATIVE_UNITS = [
-  ["year", 31536000000],
-  ["month", 2592000000],
-  ["week", 604800000],
-  ["day", 86400000],
-  ["hour", 3600000],
-  ["minute", 60000],
-];
-
-/** A Date -> "3 hours ago" / "yesterday" / "just now". */
-function formatRelative(date) {
-  const diff = date.getTime() - Date.now();
-  const abs = Math.abs(diff);
-  for (const [unit, unitMs] of RELATIVE_UNITS) {
-    if (abs >= unitMs) return relativeFmt.format(Math.round(diff / unitMs), unit);
-  }
-  return "just now";
-}
-
 function setBookmarkStatus(message, kind) {
   el.bookmarkStatus.textContent = message || "";
   el.bookmarkStatus.className = "status" + (kind ? ` ${kind}` : "");
@@ -185,18 +164,6 @@ function renderNowPlaying() {
   el.bookmarkBtn.disabled = !context;
 }
 
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str ?? "";
-  // Also escape quotes so the result is safe inside an HTML attribute.
-  return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
-
-/** What to call a bookmark: the user's custom name, else Spotify's, else a placeholder. */
-function bookmarkName(bm) {
-  return bm.customName || bm.contextName || "Unnamed";
-}
-
 async function buildBookmarkFromSnapshot(snapshot) {
   const { type, id, uri, name } = snapshot.context;
   const contextName = name ?? (await getContextName(type, id));
@@ -214,20 +181,16 @@ async function buildBookmarkFromSnapshot(snapshot) {
   };
 }
 
-function serverUsedMs(bm) {
-  return bm.lastUsedAt?.toMillis?.() ?? bm.updatedAt?.toMillis?.() ?? 0;
-}
-
 /** Effective "last used" ms: the later of the server value and this tab's local mark. */
 function usedAtMs(bm) {
-  return Math.max(serverUsedMs(bm), locallyUsedAt.get(bm.id) ?? 0);
+  return Math.max(bookmarkUsedMs(bm), locallyUsedAt.get(bm.id) ?? 0);
 }
 
 async function refreshBookmarkList() {
   const all = await listBookmarks(spotifyUserId);
   // Drop local "just used" marks the server value has now caught up to.
   for (const b of all) {
-    if ((locallyUsedAt.get(b.id) ?? 0) <= serverUsedMs(b)) locallyUsedAt.delete(b.id);
+    if ((locallyUsedAt.get(b.id) ?? 0) <= bookmarkUsedMs(b)) locallyUsedAt.delete(b.id);
   }
   // Hide a bookmark that's mid-Undo so a background re-render doesn't resurrect it.
   const bookmarks = pendingRemoval
@@ -370,14 +333,6 @@ async function onResume(bookmark, deviceId) {
   }
 }
 
-/** spotify:playlist:xxx -> https://open.spotify.com/playlist/xxx (opens the app if installed). */
-function spotifyWebUrl(uri) {
-  const [scheme, kind, id] = (uri || "").split(":");
-  return scheme === "spotify" && kind && id
-    ? `https://open.spotify.com/${kind}/${id}`
-    : "https://open.spotify.com";
-}
-
 function showResumeTargets(bookmark, devices) {
   el.deviceList.innerHTML = "";
   if (devices.length) {
@@ -465,8 +420,22 @@ async function onManualBookmark() {
   }
 }
 
+let polling = false;
+
 /** Runs on every poll tick: updates the display and auto-bookmarks on context switch. */
 async function pollOnce() {
+  // A tick can outlast the interval (429 backoff, a slow name lookup). Skip
+  // overlapping runs so two of them can't both fire the auto-bookmark.
+  if (polling) return;
+  polling = true;
+  try {
+    await runPoll();
+  } finally {
+    polling = false;
+  }
+}
+
+async function runPoll() {
   let snapshot;
   try {
     snapshot = await getPlaybackState();
@@ -624,7 +593,12 @@ async function init() {
   }
 
   if (isLoggedIn()) {
-    await enterApp();
+    try {
+      await enterApp();
+    } catch (err) {
+      console.error("Failed to start the app:", err);
+      setBookmarkStatus("Couldn't reach Spotify — reload to try again.", "error");
+    }
   } else {
     enterLoggedOut();
   }

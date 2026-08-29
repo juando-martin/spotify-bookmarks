@@ -146,10 +146,14 @@ async function performRefresh() {
   return localStorage.getItem(STORAGE_KEYS.accessToken);
 }
 
-/** Returns a valid access token, refreshing it first if it's expired/near-expiry. */
-export async function getAccessToken() {
+/**
+ * Returns a valid access token, refreshing it first if it's expired or
+ * near-expiry. Pass force=true to refresh even if the cached token looks
+ * valid (e.g. the API just rejected it with a 401).
+ */
+export async function getAccessToken(force = false) {
   const expiresAt = Number(localStorage.getItem(STORAGE_KEYS.expiresAt) || 0);
-  if (Date.now() < expiresAt) {
+  if (!force && Date.now() < expiresAt) {
     return localStorage.getItem(STORAGE_KEYS.accessToken);
   }
   return refreshAccessToken();

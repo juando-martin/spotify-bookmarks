@@ -1,0 +1,10 @@
+{
+  "name": "spotify-bookmarks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Bookmark and resume your spot in a Spotify playlist or album (static PWA).",
+  "scripts": {
+    "test": "node --test"
+  }
+}

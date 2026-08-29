@@ -36,6 +36,7 @@
 // access token server-side — out of scope for this static-hosting build.
 
 import { FIREBASE_CONFIG } from "./config.js";
+import { contextKey, bookmarkUsedMs } from "./format.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import {
   getAuth,
@@ -51,6 +52,10 @@ import {
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
+// contextKey lives in format.js (pure/testable); re-exported so callers can
+// keep importing it from the bookmark module alongside the storage helpers.
+export { contextKey };
+
 let db = null;
 let readyPromise = null;
 
@@ -62,11 +67,6 @@ function ensureReady() {
     readyPromise = signInAnonymously(auth);
   }
   return readyPromise;
-}
-
-/** `${type}_${id}` — the document ID for a bookmark's context. */
-export function contextKey(contextType, contextId) {
-  return `${contextType}_${contextId}`;
 }
 
 function contextDocRef(spotifyUserId, key) {
@@ -110,16 +110,13 @@ export async function renameBookmark(spotifyUserId, key, customName) {
   );
 }
 
-const usedAtMillis = (bm) =>
-  bm.lastUsedAt?.toMillis?.() || bm.updatedAt?.toMillis?.() || 0;
-
 /** All of this user's bookmarks, one per context, most recently used first. */
 export async function listBookmarks(spotifyUserId) {
   await ensureReady();
   const snapshot = await getDocs(collection(db, "bookmarks", spotifyUserId, "contexts"));
   const bookmarks = [];
   snapshot.forEach((docSnap) => bookmarks.push({ id: docSnap.id, ...docSnap.data() }));
-  bookmarks.sort((a, b) => usedAtMillis(b) - usedAtMillis(a));
+  bookmarks.sort((a, b) => bookmarkUsedMs(b) - bookmarkUsedMs(a));
   return bookmarks;
 }
 

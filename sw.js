@@ -8,7 +8,7 @@
 // connection. Spotify API / Firebase / gstatic requests are never touched.
 //
 // Keep the version number here in step with APP_VERSION in js/version.js.
-const CACHE_NAME = "playlist-resume-shell-v16";
+const CACHE_NAME = "playlist-resume-shell-v17";
 
 const SHELL_FILES = [
   "./",
@@ -17,6 +17,7 @@ const SHELL_FILES = [
   "./manifest.json",
   "./js/config.js",
   "./js/version.js",
+  "./js/format.js",
   "./js/pkce.js",
   "./js/auth.js",
   "./js/spotifyApi.js",
