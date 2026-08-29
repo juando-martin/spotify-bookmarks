@@ -4,18 +4,43 @@ Bookmark exactly where you are in a Spotify playlist or album — track +
 position — and jump back in later with the queue continuing normally.
 Installable on Android as a home-screen PWA.
 
-The code is scaffolded and functionally complete. It won't run yet because
-it needs your own Spotify app credentials, your own Firebase project, and a
-hosted URL. Do the four setup steps below once, then it's a normal git push
-to deploy from then on.
+Static site (plain ES modules, no build step), hosted on GitHub Pages, with
+Firestore for bookmark storage and Spotify's Web API + PKCE OAuth for
+playback. Running your own copy needs your own Spotify app credentials, a
+Firebase project, and a hosted URL — the four setup steps below, once, then
+it's a normal `git push` to deploy.
 
-**Status as of this scaffold:** nothing has been pushed to GitHub yet and
-`js/config.js` still has placeholder values. If you're picking this up in a
-new Claude Code session, this file has everything needed to continue —
-just start with step 1 below (or step 3 if credentials are already filled
-in and only hosting/git is left).
+## Features
 
-## 1. Spotify Developer Dashboard
+- **Bookmark & resume** the exact track + position inside a playlist or
+  album. Resume drops you back there with the queue continuing normally.
+- **Auto-bookmark on switch** — leaving a playlist/album saves where you
+  were, automatically (toggle in Settings).
+- **Now playing card** — album art, track / album / playlist name, and
+  **⏮ / ⏯ / ⏭** transport controls for the active device.
+- **Bookmark list** — album-art thumbnail, saved position ("resumes at
+  2:34"), last-used relative time, ordered most-recently-used first.
+- **Rename** any bookmark (✎). Needed for Spotify's editorial "Mix"
+  playlists, whose real name the Web API won't hand back; your name then
+  shows on the Now playing card too.
+- **Resume device handling** — one idle device just plays; several show a
+  picker; none shows an "Open in Spotify" deep link.
+- **Undo** on Remove (5-second grace period).
+- **"Resume last played"** PWA shortcut (long-press the home-screen icon).
+- **Settings** — auto-bookmark toggle and poll interval (3–60 s), per
+  device.
+- **Update banner** — flags a newer deployed build and reloads past a stuck
+  cache in one tap; the running version also shows in the footer.
+
+Deeper detail on each, plus the constraints, is in
+[Notes / known constraints](#notes--known-constraints).
+
+## Setup
+
+Do these once. If you're picking this up mid-way, start at step 1 (or step 3
+if credentials are already in `js/config.js` and only hosting is left).
+
+### 1. Spotify Developer Dashboard
 
 1. Go to https://developer.spotify.com/dashboard and log in with your
    Spotify account.
@@ -34,7 +59,7 @@ in and only hosting/git is left).
    fine for personal use; add a few emails there if you want to share with
    friends/family.
 
-## 2. Firebase project
+### 2. Firebase project
 
 1. Go to https://console.firebase.google.com and create a free project.
 2. In the project, go to **Build → Firestore Database → Create database**.
@@ -49,7 +74,7 @@ in and only hosting/git is left).
    (`</>`) to register a web app (no Firebase Hosting needed), and copy the
    resulting config object's values into `js/config.js`'s `FIREBASE_CONFIG`.
 
-## 3. GitHub Pages hosting
+### 3. GitHub Pages hosting
 
 GitHub Pages on the **free** plan only works with **public** repos (private
 repo Pages needs GitHub Pro/Team/Enterprise). That's fine here — `js/config.js`
@@ -87,7 +112,7 @@ matches (including trailing slash) the Redirect URI registered in Spotify
 `window.location`, so nothing to edit there — just make sure the Dashboard's
 Redirect URI matches the real deployed URL).
 
-## 4. Fill in config and test
+### 4. Fill in config and test
 
 1. Edit `js/config.js`: set `SPOTIFY_CONFIG.clientId` and all of
    `FIREBASE_CONFIG`.
@@ -103,7 +128,7 @@ Redirect URI matches the real deployed URL).
 6. On Android Chrome, open the site, tap the **⋮** menu → **Add to Home
    screen** to install it as a standalone app.
 
-### Notes / known constraints
+## Notes / known constraints
 
 - Spotify's `Start/Resume Playback` endpoint requires an **active device**.
   When Resume finds none:
@@ -145,16 +170,17 @@ Redirect URI matches the real deployed URL).
   back in** once to re-consent, or playlist names stay blank ("In a
   playlist").
 - Spotify-owned **editorial / algorithmic** playlists (Discover Weekly,
-  Daily Mix, Release Radar, mood mixes, …) can't be read via the Web API for
-  Development-Mode apps, so their name won't resolve — the bookmark shows
-  "Unknown playlist". Bookmarking and resuming still work; only the display
-  name is missing. Use the **✎ rename** button on the bookmark to give it a
-  name yourself — the playlist ID is stable (Discover Weekly keeps the same
-  URI forever, only its contents rotate), so the name you set sticks.
+  Daily Mix, Release Radar, artist/mood Mixes, …) can't be read via the Web
+  API for Development-Mode apps, so their name won't resolve — the bookmark
+  shows "Unknown playlist" and the Now playing card shows "In a playlist".
+  Bookmarking and resuming still work; only the display name is missing.
 - Every bookmark has a **✎ rename** control next to its name. The custom
-  name is stored per bookmark (`customName`) and shown instead of Spotify's;
-  clear the field to fall back to the Spotify name. It survives re-saves and
-  auto-bookmarks.
+  name is stored per bookmark (`customName`), shown instead of Spotify's
+  (clear the field to fall back), and survives re-saves and auto-bookmarks.
+  While that context is playing, the Now playing card shows the custom name
+  too. This is the fix for the editorial-playlist case above: the playlist
+  ID is stable (Discover Weekly keeps the same URI forever, only its
+  contents rotate), so a name you set once sticks.
 - If Spotify rate-limits a request (HTTP 429), the API wrapper waits out the
   `Retry-After` delay (capped at 15s) and retries up to 3 times rather than
   hammering.
@@ -177,11 +203,14 @@ Redirect URI matches the real deployed URL).
   home-screen icon on Android, right-click the taskbar icon on desktop) that
   opens the app and immediately resumes your most-recently-used bookmark —
   it just loads `./?action=resume-last`.
-- The footer shows the running version (`v14`, …) and it's also logged to
-  the console on load. If it doesn't match `APP_VERSION` in `js/version.js`
-  on `main`, the browser is serving a stale cache — hard-refresh, or on an
-  installed PWA close it fully and reopen. Bump `APP_VERSION` **and**
-  `CACHE_NAME` in `sw.js` together on every deploy.
+- The running version shows in the footer (`v19`, …) and is logged to the
+  console on load. On every load and every time the app returns to the
+  foreground it fetches `js/version.js` from the network; if that's newer
+  than the running build it shows an **"Update available"** banner whose
+  **Reload** button unregisters the service worker and reloads — a one-tap
+  escape from a stuck PWA cache (no more Settings → Clear storage). Bump
+  `APP_VERSION` in `js/version.js` **and** `CACHE_NAME` in `sw.js` together
+  on every deploy.
 - The Firestore security model is intentionally simple for a personal /
   small-allowlist app — see the comment block at the top of
   `js/firebaseBookmarks.js` before sharing this more widely.
