@@ -22,7 +22,9 @@ it's a normal `git push` to deploy.
   **⏮ / ⏯ / ⏭** transport controls for the active device.
 - **Bookmark list** — album-art thumbnail, saved position ("resumes at
   2:34"), last-used relative time, ordered most-recently-used first, with a
-  filter box (matches name / track / artist).
+  filter box (matches name / track / artist). **Pick a track** on any
+  bookmark expands its playlist/album so you can play a different song from
+  it.
 - **Rename** any bookmark (✎). Needed for Spotify's editorial "Mix"
   playlists, whose real name the Web API won't hand back; your name then
   shows on the Now playing card too.

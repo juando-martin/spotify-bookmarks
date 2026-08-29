@@ -60,6 +60,11 @@ Original backlog #1–#12, plus everything added along the way:
   Spotify-green field. `icons/icon.svg` is the source; `icon-192.png` /
   `icon-512.png` are rendered from it (`magick -background "#1ed760"
   icon.svg -resize NxN …`). Picked from a 5-concept comparison page.
+- **"Pick a track"** — a per-bookmark toggle expands the playlist/album
+  tracklist inline (`getContextTracks()` in `spotifyApi.js`, capped
+  100/50); tapping a track plays it in that context from 0:00. `expandedId`
+  + an `expandedTracks` cache in `main.js` survive list re-renders.
+  Editorial playlists 404 -> a "can't load" message.
 
 ## Left
 

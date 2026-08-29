@@ -13,7 +13,7 @@ import {
   spotifyWebUrl,
 } from "./format.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
-import { getCurrentUser, getPlaybackState, getContextMeta, getDevices, resumePlayback, playbackControl, seek, searchContexts } from "./spotifyApi.js";
+import { getCurrentUser, getPlaybackState, getContextMeta, getContextTracks, getDevices, resumePlayback, playbackControl, seek, searchContexts } from "./spotifyApi.js";
 import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, contextKey } from "./firebaseBookmarks.js";
 
 const el = {
@@ -127,6 +127,11 @@ const customNameByContext = new Map();
 // by the "keep an active bookmark updated" setting.
 const bookmarkedContexts = new Set();
 let lastTrackId = null;
+
+// The one bookmark whose tracklist is expanded, and a per-context cache of
+// fetched tracks ("loading" | Track[] | null). Survives list re-renders.
+let expandedId = null;
+const expandedTracks = new Map();
 
 /**
  * Show a transient toast. Pass { actionLabel, onAction } for an inline
@@ -334,6 +339,7 @@ function renderBookmarks() {
     const art = bm.imageUrl
       ? `<img class="bookmark-art" src="${escapeHtml(bm.imageUrl)}" alt="" width="52" height="52" loading="lazy" />`
       : `<div class="bookmark-art bookmark-art-empty" aria-hidden="true"></div>`;
+    const expanded = bm.id === expandedId;
     li.innerHTML = `
       <div class="bookmark-main">
         ${art}
@@ -349,13 +355,92 @@ function renderBookmarks() {
       </div>
       <div class="bookmark-actions">
         <button class="resume-btn">Resume</button>
-        <button class="remove-btn">Remove</button>
+        <div class="bookmark-subactions">
+          <button class="tracks-btn" aria-expanded="${expanded}">${expanded ? "Hide tracks" : "Pick a track"}</button>
+          <button class="remove-btn">Remove</button>
+        </div>
       </div>
+      ${expanded ? `<div class="tracklist"></div>` : ""}
     `;
     li.querySelector(".resume-btn").addEventListener("click", () => onResume(bm));
     li.querySelector(".remove-btn").addEventListener("click", () => onRemove(bm, li));
     li.querySelector(".rename-btn").addEventListener("click", () => startRename(bm, li));
+    li.querySelector(".tracks-btn").addEventListener("click", () => toggleTracks(bm));
+    if (expanded) renderTracksInto(li.querySelector(".tracklist"), bm);
     el.bookmarkList.appendChild(li);
+  }
+}
+
+async function toggleTracks(bm) {
+  if (expandedId === bm.id) {
+    expandedId = null;
+    renderBookmarks();
+    return;
+  }
+  expandedId = bm.id;
+  if (!expandedTracks.has(bm.id)) {
+    expandedTracks.set(bm.id, "loading");
+    renderBookmarks();
+    let tracks = null;
+    try {
+      tracks = await getContextTracks(bm.contextType, bm.contextId);
+    } catch (err) {
+      console.error("Track list failed:", err);
+    }
+    expandedTracks.set(bm.id, tracks); // Track[] | null
+  }
+  if (expandedId === bm.id) renderBookmarks();
+}
+
+function renderTracksInto(container, bm) {
+  const state = expandedTracks.get(bm.id);
+  if (state === "loading") {
+    container.textContent = "Loading tracks…";
+    return;
+  }
+  if (!state) {
+    container.textContent =
+      "Couldn't load this playlist — Spotify won't share editorial playlists with this app.";
+    return;
+  }
+  if (!state.length) {
+    container.textContent = "This one has no tracks.";
+    return;
+  }
+  const ul = document.createElement("ul");
+  ul.className = "track-rows";
+  for (const t of state) {
+    const row = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.className = "track-row";
+    btn.innerHTML =
+      `<span class="track-row-name">${escapeHtml(t.name)}</span>` +
+      `<span class="track-row-artist">${escapeHtml(t.artists)}</span>`;
+    btn.addEventListener("click", () => onPlayTrack(bm, t));
+    row.appendChild(btn);
+    ul.appendChild(row);
+  }
+  container.replaceChildren(ul);
+  if (state.length >= (bm.contextType === "album" ? 50 : 100)) {
+    const note = document.createElement("p");
+    note.className = "tracklist-note";
+    note.textContent = `Showing the first ${state.length}.`;
+    container.appendChild(note);
+  }
+}
+
+async function onPlayTrack(bm, track) {
+  try {
+    await resumePlayback({ contextUri: bm.contextUri, trackUri: track.uri, positionMs: 0 });
+    showToast(`Playing ${track.name}`);
+    setTimeout(pollOnce, 1500);
+  } catch (err) {
+    console.error(err);
+    showToast(
+      /\b404\b/.test(err.message)
+        ? "No active device — open Spotify somewhere first."
+        : "Couldn't play that track.",
+    );
   }
 }
 
@@ -611,6 +696,7 @@ function commitRemoval() {
 
 function onRemove(bookmark, li) {
   commitRemoval(); // flush any earlier pending removal first
+  if (expandedId === bookmark.id) expandedId = null;
   li.remove();
   const timer = setTimeout(commitRemoval, 5000);
   pendingRemoval = { bookmark, timer };
@@ -898,6 +984,8 @@ function enterLoggedOut() {
   el.searchInput.value = "";
   el.searchResults.replaceChildren();
   el.bookmarkFilter.value = "";
+  expandedId = null;
+  expandedTracks.clear();
   el.loginView.hidden = false;
   el.appView.hidden = true;
 }
