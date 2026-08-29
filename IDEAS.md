@@ -4,74 +4,88 @@ Loose backlog — not tracked anywhere, pick items off as we feel like it.
 
 ## Done
 
-Original backlog: **#1–#10** and **#12** (album name from payload, saved
-position on each bookmark, album-art thumbnails, relative timestamps, 429
-backoff, pause polling when hidden, single-flight token refresh, device
-awareness on Resume, Undo on Remove, "Resume last played" PWA shortcut,
-unit tests). Only **#11** (podcasts) is left.
+Original backlog #1–#10 and #12, plus, added along the way: album support;
+Settings card (auto-bookmark toggle + poll interval); most-recently-used
+ordering with an instant local mark; Now playing card (album art, album +
+playlist name, and — later — your custom bookmark name); transport controls
+(⏮ / ⏯ / ⏭); rename bookmarks (`customName`, merge write); Resume device
+handling (lone device auto-plays, picker for several, "Open in Spotify" deep
+link for none); `playlist-read-*` scopes; bookmark thumbnail = playlist/album
+cover; version marker + "update available" banner; a real fix for the
+GitHub-Pages stale-cache problem (SW revalidates with `cache: no-cache`,
+`updateViaCache: none`); `js/format.js` + unit tests.
 
-Added along the way:
+## Planned (next)
 
-- **Album support** — bookmark/resume albums, not just playlists.
-- **Settings card** — auto-bookmark toggle + poll interval (per-device).
-- **Most-recently-used ordering** — list sorts by last save/resume; a
-  just-used bookmark jumps to the top instantly via a local mark rather
-  than waiting for the Firestore `serverTimestamp` to read back.
-- **Now playing card** — album art, album name, playlist name.
-- **Transport controls** — ⏮ / ⏯ / ⏭ in the Now playing card
-  (`/me/player/{next,previous,pause,play}`, optimistic play/pause flip).
-- **Rename bookmarks** — ✎ inline edit, stored as `customName` (merge
-  write so auto-bookmark can't wipe it). Fixes unnameable Spotify editorial
-  playlists (Discover Weekly etc.) since the playlist ID is stable.
-- **Resume device handling** — one idle device → just play there; 2+ →
-  picker; none → "Open … in Spotify" deep link.
-- **`playlist-read-private` / `-collaborative` scopes** — so private
-  playlist names resolve.
-- **Network-first service worker** — no double reload after deploys.
-- **Version marker** — `APP_VERSION` in `js/version.js`, shown in the
-  footer and logged to console; bump it with `CACHE_NAME` in `sw.js`.
-- **Pure-logic extraction + unit tests** (#12) — `js/format.js` +
-  `test/format.test.js`.
-- Misc from the code review: overlapping `pollOnce` runs are now skipped
-  (re-entrancy guard); a rejected token (401) forces a real refresh instead
-  of re-reading the cached one; `enterApp()` failure surfaces an error
-  instead of an unhandled rejection; `escapeHtml` is a pure regex and
-  attribute-safe; `getContextName` doesn't cache a failed lookup;
-  podcast-episode art fallback (`data.item.images`).
+### 1. Firestore offline persistence
 
-## Remaining
+Enable `persistentLocalCache` in `getFirestore()`. Bookmark writes queue and
+retry across connectivity blips (bookmarking on a flaky phone connection
+actually sticks), and list reads come from IndexedDB then revalidate.
 
-### 12 — DONE
+- **Size:** tiny (one config change) + test that a save while offline lands
+  when the connection returns.
+- **Files:** `js/firebaseBookmarks.js`.
 
-Pure logic extracted to `js/format.js` (`contextKey`, `escapeHtml`,
-`bookmarkName`, `formatDuration`, `formatRelative`, `spotifyWebUrl`,
-`smallestImageUrl`, `normalizePlaybackState`, `bookmarkUsedMs`). Covered by
-`test/format.test.js` (`node --test`, 20 tests, no deps). `getPlaybackState`
-is now just fetch + `normalizePlaybackState`. `escapeHtml` is a pure regex
-(no more `document.createElement`).
+### 2. Negative-cache unreadable playlists
 
-### 11. Podcast episode support
+An editorial "Mix" whose `GET /playlists/{id}` 404s currently costs one API
+call on every poll tick (the Now-playing name resolution). Add a per-session
+set of "known unreadable" context keys — or a short backoff — so we stop
+re-asking.
 
-Spotify *can* resume a podcast episode at a position — play the episode URI
-directly with `position_ms`, no `context_uri` / `offset` needed. Different
-code path from playlist/album but a natural fit for "where was I".
+- **Size:** small.
+- **Files:** `js/spotifyApi.js` (`getContextMeta`).
 
-- **Why:** podcasts are the archetypal "resume later" content.
-- **Caveats:** Spotify already remembers episode position natively, so the
-  value is partly redundant. Also `/me/player` only returns episode items
-  when called with `?additional_types=episode` — that has to be added first
-  or a playing podcast just reads as "nothing playing".
+### 3. Harden the Firestore rules
+
+`allow write: if request.auth != null` lets any allowlisted user write any
+shape/size of data. Add validation to `firestore.rules`: `hasOnly([...])`
+the known fields, cap string lengths, sanity-check `positionMs`. No backend
+— it just limits what a friends-and-family account can do to your quota.
+
+- **Size:** small (rules only; re-paste + Publish in the Firebase console).
+- **Files:** `firestore.rules`.
+
+### 4. Now playing progress bar
+
+`progress_ms` + `item.duration_ms` are already in the payload — show
+elapsed / total with a bar under the transport controls. Optionally make it
+a **seek bar** (`PUT /me/player/seek?position_ms=`).
+
 - **Size:** medium.
-- **Files:** `js/spotifyApi.js` (`getPlaybackState` recognizes `episode`
-  items / `show` context; `resumePlayback` branches on whether there's a
-  context), `js/main.js`. `firestore.rules` unaffected.
+- **Files:** `js/spotifyApi.js` (carry `durationMs`, add `seek`),
+  `js/format.js` (`normalizePlaybackState`), `js/main.js`, `style.css`,
+  `index.html`.
+
+### 7. `npm run bump`
+
+One script that bumps `APP_VERSION` in `js/version.js` **and** `CACHE_NAME`
+in `sw.js` together, so neither is ever forgotten on a deploy.
+
+- **Size:** tiny.
+- **Files:** new `scripts/bump.mjs`, `package.json`.
+
+## Later / maybe
+
+- **#5 Export / import bookmarks** — a JSON blob to copy out for backup or
+  moving accounts. Download links are unreliable in an installed PWA, so
+  probably a copy/paste textarea.
+- **#6 Tap the whole bookmark row to Resume** (bigger touch target) + a
+  small a11y pass (`aria-live` on the toast, `role="alert"` on the update
+  banner).
+- **#11 Podcast episode support** — Spotify remembers episode position
+  natively (low payoff), and `/me/player` needs `?additional_types=episode`
+  before a playing podcast even shows up.
 
 ## Not planned (considered, deliberately skipped)
 
-- **Server-side / always-on polling** — covered by the "Always-on
-  auto-bookmark" section in the README (park the page in a kiosk browser on
-  a Pi with `?background`). A real backend only saves needing a device
-  that stays powered on.
+- **Server-side / always-on polling** — the README's "Always-on
+  auto-bookmark" (kiosk browser on a Pi with `?background`) covers this. A
+  real backend only saves needing a device that stays powered on.
+- **Real per-user isolation** — needs a backend to mint Firebase custom
+  tokens from verified Spotify identities. Against the no-backend design;
+  rule hardening (#3) is the pragmatic middle ground.
 - **Confirm dialog on Remove** — the Undo toast is the chosen pattern.
 - **Push / event-driven playback updates** — Spotify has no webhooks;
-  everything polls. Not worth revisiting.
+  everything polls.
