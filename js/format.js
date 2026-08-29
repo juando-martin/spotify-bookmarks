@@ -124,3 +124,43 @@ export function normalizePlaybackState(data) {
 export function bookmarkUsedMs(bm) {
   return bm.lastUsedAt?.toMillis?.() ?? bm.updatedAt?.toMillis?.() ?? 0;
 }
+
+// The bookmark fields carried in a backup export (no timestamps — those are
+// set fresh on import).
+export const EXPORT_FIELDS = [
+  "contextType", "contextId", "contextUri", "contextName", "customName",
+  "imageUrl", "trackId", "trackUri", "trackName", "artists", "positionMs",
+];
+
+/**
+ * Sanitize one entry from an imported backup into exactly the fields the
+ * Firestore rules allow (matching their type/size checks), or null if it's
+ * not a usable bookmark.
+ */
+export function buildImportBookmark(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const type = raw.contextType;
+  if (type !== "playlist" && type !== "album") return null;
+
+  const str = (v, max) => (typeof v === "string" && v.length <= max ? v : null);
+  const contextId = str(raw.contextId, 100);
+  const contextUri = str(raw.contextUri, 200);
+  const trackId = str(raw.trackId, 100);
+  const trackUri = str(raw.trackUri, 200);
+  if (!contextId || !contextUri || !trackId || !trackUri) return null;
+
+  const pos = Number(raw.positionMs);
+  return {
+    contextType: type,
+    contextId,
+    contextUri,
+    contextName: str(raw.contextName, 300) || `Unknown ${type}`,
+    customName: str(raw.customName, 200) || null,
+    imageUrl: str(raw.imageUrl, 500) || null,
+    trackId,
+    trackUri,
+    trackName: str(raw.trackName, 500) || "",
+    artists: str(raw.artists, 1000) || "",
+    positionMs: Number.isFinite(pos) && pos >= 0 ? Math.min(pos, 86400000) : 0,
+  };
+}

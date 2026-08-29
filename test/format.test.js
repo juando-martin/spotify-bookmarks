@@ -12,6 +12,7 @@ import {
   smallestImageUrl,
   normalizePlaybackState,
   bookmarkUsedMs,
+  buildImportBookmark,
 } from "../js/format.js";
 
 test("contextKey joins type and id with an underscore", () => {
@@ -229,4 +230,60 @@ test("bookmarkUsedMs sorts a list most-recently-used first", () => {
   ];
   list.sort((x, y) => bookmarkUsedMs(y) - bookmarkUsedMs(x));
   assert.deepEqual(list.map((b) => b.id), ["b", "c", "a"]);
+});
+
+// --- buildImportBookmark -----------------------------------------------------
+
+const goodEntry = {
+  contextType: "playlist",
+  contextId: "PL1",
+  contextUri: "spotify:playlist:PL1",
+  contextName: "My Mix",
+  customName: "Dido Mix",
+  imageUrl: "https://i.scdn.co/image/abc",
+  trackId: "T1",
+  trackUri: "spotify:track:T1",
+  trackName: "Thank You",
+  artists: "Dido",
+  positionMs: 154000,
+};
+
+test("buildImportBookmark passes a well-formed entry through", () => {
+  assert.deepEqual(buildImportBookmark(goodEntry), goodEntry);
+});
+
+test("buildImportBookmark rejects entries that can't be a bookmark", () => {
+  assert.equal(buildImportBookmark(null), null);
+  assert.equal(buildImportBookmark("x"), null);
+  assert.equal(buildImportBookmark({ ...goodEntry, contextType: "artist" }), null);
+  assert.equal(buildImportBookmark({ ...goodEntry, contextId: undefined }), null);
+  assert.equal(buildImportBookmark({ ...goodEntry, trackUri: 42 }), null);
+});
+
+test("buildImportBookmark fills defaults and clamps oddities", () => {
+  const b = buildImportBookmark({
+    contextType: "album",
+    contextId: "AL1",
+    contextUri: "spotify:album:AL1",
+    trackId: "T2",
+    trackUri: "spotify:track:T2",
+    positionMs: -5,
+  });
+  assert.equal(b.contextName, "Unknown album");
+  assert.equal(b.customName, null);
+  assert.equal(b.imageUrl, null);
+  assert.equal(b.trackName, "");
+  assert.equal(b.artists, "");
+  assert.equal(b.positionMs, 0);
+
+  assert.equal(buildImportBookmark({ ...goodEntry, positionMs: 1e12 }).positionMs, 86400000);
+  assert.equal(buildImportBookmark({ ...goodEntry, contextName: "x".repeat(500) }).contextName, "Unknown playlist");
+});
+
+test("buildImportBookmark output has only the whitelisted fields", () => {
+  const b = buildImportBookmark({ ...goodEntry, junk: "drop me", updatedAt: 1 });
+  assert.deepEqual(Object.keys(b).sort(), [
+    "artists", "contextId", "contextName", "contextType", "contextUri",
+    "customName", "imageUrl", "positionMs", "trackId", "trackName", "trackUri",
+  ]);
 });

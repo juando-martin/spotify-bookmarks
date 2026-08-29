@@ -88,6 +88,18 @@
         <h2>Your bookmarks</h2>
         <ul id="bookmark-list"></ul>
         <p id="bookmark-empty" hidden>No bookmarks yet — play a playlist or album and tap "Bookmark this spot", or just switch away from one and it'll save automatically.</p>
+
+        <details id="backup-section">
+          <summary>Backup &amp; restore</summary>
+          <div class="backup-body">
+            <button id="export-btn" class="secondary">Export &amp; copy</button>
+            <textarea id="export-text" class="backup-text" rows="5" readonly hidden aria-label="Exported bookmarks JSON"></textarea>
+            <p class="backup-hint">Paste a previous export below to restore it. A bookmark for a playlist/album you already have is overwritten.</p>
+            <textarea id="import-text" class="backup-text" rows="5" placeholder="Paste exported JSON here…" aria-label="Bookmarks JSON to import"></textarea>
+            <button id="import-btn" class="secondary">Import</button>
+            <p id="import-status" class="status"></p>
+          </div>
+        </details>
       </section>
     </section>
     <footer id="app-footer"><span id="app-version"></span></footer>

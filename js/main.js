@@ -4,7 +4,9 @@ import { APP_VERSION } from "./version.js";
 import {
   bookmarkName,
   bookmarkUsedMs,
+  buildImportBookmark,
   escapeHtml,
+  EXPORT_FIELDS,
   formatDuration,
   formatRelative,
   spotifyWebUrl,
@@ -34,6 +36,11 @@ const el = {
   bookmarkStatus: document.getElementById("bookmark-status"),
   bookmarkList: document.getElementById("bookmark-list"),
   bookmarkEmpty: document.getElementById("bookmark-empty"),
+  exportBtn: document.getElementById("export-btn"),
+  exportText: document.getElementById("export-text"),
+  importText: document.getElementById("import-text"),
+  importBtn: document.getElementById("import-btn"),
+  importStatus: document.getElementById("import-status"),
   devicePicker: document.getElementById("device-picker"),
   devicePickerMsg: document.getElementById("device-picker-msg"),
   deviceList: document.getElementById("device-list"),
@@ -516,6 +523,72 @@ async function onManualBookmark() {
   }
 }
 
+// --- Backup & restore -------------------------------------------------------
+
+function setImportStatus(message, kind) {
+  el.importStatus.textContent = message || "";
+  el.importStatus.className = "status" + (kind ? ` ${kind}` : "");
+}
+
+async function onExport() {
+  const all = await listBookmarks(spotifyUserId);
+  const payload = {
+    app: "playlist-resume",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    bookmarks: all.map((b) =>
+      Object.fromEntries(EXPORT_FIELDS.map((f) => [f, b[f] ?? (f === "positionMs" ? 0 : null)])),
+    ),
+  };
+  const json = JSON.stringify(payload, null, 2);
+  el.exportText.value = json;
+  el.exportText.hidden = false;
+  try {
+    await navigator.clipboard.writeText(json);
+    showToast(`Copied ${payload.bookmarks.length} bookmark${payload.bookmarks.length === 1 ? "" : "s"}`);
+  } catch {
+    el.exportText.focus();
+    el.exportText.select();
+    showToast("Select all and copy the text below");
+  }
+}
+
+async function onImport() {
+  let parsed;
+  try {
+    parsed = JSON.parse(el.importText.value);
+  } catch {
+    setImportStatus("That isn't valid JSON.", "error");
+    return;
+  }
+  const list = Array.isArray(parsed) ? parsed : parsed?.bookmarks;
+  const valid = Array.isArray(list) ? list.map(buildImportBookmark).filter(Boolean) : [];
+  if (!valid.length) {
+    setImportStatus("No usable bookmarks found in that text.", "error");
+    return;
+  }
+
+  el.importBtn.disabled = true;
+  setImportStatus(`Importing ${valid.length}…`);
+  let ok = 0;
+  for (const bm of valid) {
+    try {
+      await saveBookmark(spotifyUserId, bm);
+      markUsedNow(contextKey(bm.contextType, bm.contextId));
+      ok += 1;
+    } catch (err) {
+      console.error("Import of one bookmark failed:", err);
+    }
+  }
+  el.importBtn.disabled = false;
+  setImportStatus(
+    `Imported ${ok}${ok < list.length ? ` of ${list.length} (${list.length - ok} skipped)` : ""}.`,
+    ok ? "success" : "error",
+  );
+  if (ok) el.importText.value = "";
+  await refreshBookmarkList();
+}
+
 let polling = false;
 
 /** Runs on every poll tick: updates the display and auto-bookmarks on context switch. */
@@ -729,6 +802,8 @@ async function init() {
     enterLoggedOut();
   });
   el.bookmarkBtn.addEventListener("click", onManualBookmark);
+  el.exportBtn.addEventListener("click", onExport);
+  el.importBtn.addEventListener("click", onImport);
   el.deviceCancel.addEventListener("click", hideDevicePicker);
   el.prevBtn.addEventListener("click", () => onTransport("previous"));
   el.nextBtn.addEventListener("click", () => onTransport("next"));

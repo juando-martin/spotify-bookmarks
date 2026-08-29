@@ -30,15 +30,14 @@ Original backlog #1–#12, plus everything added along the way:
 
 ## Left
 
-### 5. Export / import bookmarks
+### 5. Export / import bookmarks — DONE
 
-A JSON blob to copy out for backup or moving between Spotify accounts.
-Download links are unreliable in an installed PWA, so a read-only textarea
-to copy from and a paste-to-import field.
-
-- **Size:** medium.
-- **Files:** `js/firebaseBookmarks.js` (bulk read/write), `js/main.js`,
-  `index.html`, `style.css`.
+"Backup & restore" `<details>` at the bottom of the bookmarks card.
+*Export & copy* → `{app, version, exportedAt, bookmarks[]}` to the clipboard
+(+ a textarea fallback). *Import* parses that or a bare array,
+`buildImportBookmark` (in `js/format.js`, unit-tested) sanitizes each entry
+to the rule-whitelisted fields, then `saveBookmark` per entry (overwrites
+same-context). No per-bookmark export, no sharing — backup is the point.
 
 ### 6. Bigger Resume target + a11y pass — DONE
 

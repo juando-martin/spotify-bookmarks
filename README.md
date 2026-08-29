@@ -29,6 +29,8 @@ it's a normal `git push` to deploy.
 - **"Resume last played"** PWA shortcut (long-press the home-screen icon).
 - **Settings** — auto-bookmark toggle and poll interval (3–60 s), per
   device.
+- **Backup & restore** — export all bookmarks to JSON (copied to the
+  clipboard) and paste an export back in to restore them.
 - **Update banner** — flags a newer deployed build and reloads past a stuck
   cache in one tap; the running version also shows in the footer.
 
@@ -148,6 +150,12 @@ Redirect URI matches the real deployed URL).
   between polls and resyncs on each poll; dragging it seeks the device.
 - **Remove** deletes after a 5-second grace period with an **Undo** in the
   toast; the delete only actually hits Firestore once that window passes.
+- **Backup & restore** lives at the bottom of the bookmarks card. *Export &
+  copy* puts `{ app, version, exportedAt, bookmarks[] }` on the clipboard
+  (and in a textarea as a fallback). *Import* accepts that, or a bare array;
+  each entry is sanitized to the whitelisted fields before writing, and a
+  bookmark for a playlist/album you already have is overwritten. Your only
+  copy of the data is otherwise the one Firestore collection.
 - Only **playlist** and **album** contexts can be bookmarked. Spotify also
   reports "artist" (e.g. artist radio / an artist page) and "show" (podcast)
   contexts, but those don't resume to an exact track + position reliably, so

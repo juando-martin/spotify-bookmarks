@@ -448,6 +448,63 @@ button.link {
   font-size: 0.9rem;
 }
 
+button.secondary {
+  align-self: flex-start;
+  width: auto;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  background: #2c2c2c;
+  color: var(--text);
+}
+
+button.secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#backup-section {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+#backup-section > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.backup-body {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.backup-text {
+  width: 100%;
+  box-sizing: border-box;
+  font: 0.75rem / 1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #2c2c2c;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  resize: vertical;
+}
+
+.backup-text[hidden] {
+  display: none;
+}
+
+.backup-hint {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 #device-list {
   list-style: none;
   margin: 0 0 0.5rem;
