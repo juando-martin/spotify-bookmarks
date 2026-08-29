@@ -135,8 +135,21 @@ button.link {
   padding: 0.75rem;
 }
 
-.bookmark-item .playlist-name {
+.bookmark-item .context-name {
   font-weight: 600;
+}
+
+.bookmark-item .context-type {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  vertical-align: middle;
 }
 
 .bookmark-item .track-line {

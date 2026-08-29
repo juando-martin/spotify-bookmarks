@@ -1,8 +1,8 @@
 # Playlist Resume
 
-Bookmark exactly where you are in a Spotify playlist — track + position — and
-jump back in later with the queue continuing normally. Installable on
-Android as a home-screen PWA.
+Bookmark exactly where you are in a Spotify playlist or album — track +
+position — and jump back in later with the queue continuing normally.
+Installable on Android as a home-screen PWA.
 
 The code is scaffolded and functionally complete. It won't run yet because
 it needs your own Spotify app credentials, your own Firebase project, and a
@@ -94,11 +94,12 @@ Redirect URI matches the real deployed URL).
 2. Commit and push again.
 3. Visit the GitHub Pages URL from your phone browser (or the laptop),
    click **Log in with Spotify**, and approve access.
-4. Play something from a playlist on any Spotify device, hit **Bookmark
-   this spot**, switch to a different playlist or podcast, and confirm a
-   bookmark appears in the list with the right track/playlist name.
+4. Play something from a playlist or album on any Spotify device, hit
+   **Bookmark this spot**, switch to a different playlist/album/podcast, and
+   confirm a bookmark appears in the list with the right track name and a
+   `PLAYLIST` or `ALBUM` tag.
 5. Tap **Resume** on a bookmark — playback should jump to that exact track,
-   inside that playlist, and a confirmation toast should appear.
+   inside that playlist or album, and a confirmation toast should appear.
 6. On Android Chrome, open the site, tap the **⋮** menu → **Add to Home
    screen** to install it as a standalone app.
 
@@ -108,6 +109,16 @@ Redirect URI matches the real deployed URL).
   (something with Spotify open). If nothing is open anywhere, Resume will
   show an error asking you to open Spotify first — that's a Spotify API
   limitation, not a bug here.
+- Only **playlist** and **album** contexts can be bookmarked. Spotify also
+  reports "artist" (e.g. artist radio / an artist page) and "show" (podcast)
+  contexts, but those don't resume to an exact track + position reliably, so
+  **Bookmark this spot** stays disabled for them ("Not in a playlist or
+  album context"). Playing a bare track with no context also can't be
+  bookmarked.
+- Bookmarks are keyed one-per-context: re-bookmarking the same playlist or
+  album overwrites its previous bookmark in place. A playlist and an album
+  are always separate bookmarks even in the unlikely event their IDs match
+  (the stored key is prefixed with the type).
 - Auto-bookmark-on-switch works by polling playback state every 5 seconds
   (`POLL_INTERVAL_MS` in `js/config.js`), so the saved position can be up to
   ~5 seconds behind the actual switch moment. Lower the interval if you
@@ -127,8 +138,8 @@ firestore.rules           Firestore security rules to paste into the Firebase co
 js/config.js              YOUR Spotify + Firebase config (fill in per steps above)
 js/pkce.js                PKCE code_verifier/code_challenge helpers
 js/auth.js                Spotify OAuth login/redirect/token refresh
-js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, playlist name)
-js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist per user)
+js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, playlist/album name)
+js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist/album per user)
 js/main.js                Wires it all together: UI, polling loop, auto-bookmark
 icons/                    App icons for the PWA manifest
 ```

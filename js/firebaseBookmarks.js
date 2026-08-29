@@ -1,12 +1,15 @@
 // Firestore-backed bookmark storage.
 //
-// Data model: bookmarks/{spotifyUserId}/playlists/{playlistId}
-//   -> { playlistId, playlistName, trackId, trackUri, trackName,
-//        artists, positionMs, updatedAt }
+// Data model: bookmarks/{spotifyUserId}/contexts/{contextKey}
+//   -> { contextType, contextId, contextUri, contextName, trackId,
+//        trackUri, trackName, artists, positionMs, updatedAt }
 //
-// Using the playlist ID as the document ID is what gives us "one bookmark
-// per playlist, updated in place" for free — writing again with the same
-// playlistId just overwrites the existing doc instead of creating a new one.
+// A "context" is a playlist or an album. `contextKey` is `${type}_${id}`
+// (e.g. "playlist_37i9dQ...", "album_1DFixLW...") — the type prefix keeps
+// playlist and album ID spaces from ever colliding. Using it as the
+// document ID is what gives us "one bookmark per context, updated in
+// place" for free — writing again with the same key just overwrites the
+// existing doc instead of creating a new one.
 //
 // Security note: this app signs in to Firebase anonymously purely to
 // satisfy a "request.auth != null" Firestore rule (see firestore.rules),
@@ -50,30 +53,36 @@ function ensureReady() {
   return readyPromise;
 }
 
-function playlistDocRef(spotifyUserId, playlistId) {
-  return doc(db, "bookmarks", spotifyUserId, "playlists", playlistId);
+/** `${type}_${id}` — the document ID for a bookmark's context. */
+export function contextKey(contextType, contextId) {
+  return `${contextType}_${contextId}`;
 }
 
-/** Create or overwrite the single bookmark for this playlist. */
+function contextDocRef(spotifyUserId, key) {
+  return doc(db, "bookmarks", spotifyUserId, "contexts", key);
+}
+
+/** Create or overwrite the single bookmark for this context. */
 export async function saveBookmark(spotifyUserId, bookmark) {
   await ensureReady();
-  await setDoc(playlistDocRef(spotifyUserId, bookmark.playlistId), {
+  const key = contextKey(bookmark.contextType, bookmark.contextId);
+  await setDoc(contextDocRef(spotifyUserId, key), {
     ...bookmark,
     updatedAt: serverTimestamp(),
   });
 }
 
-/** All of this user's bookmarks, one per playlist, newest first. */
+/** All of this user's bookmarks, one per context, newest first. */
 export async function listBookmarks(spotifyUserId) {
   await ensureReady();
-  const snapshot = await getDocs(collection(db, "bookmarks", spotifyUserId, "playlists"));
+  const snapshot = await getDocs(collection(db, "bookmarks", spotifyUserId, "contexts"));
   const bookmarks = [];
   snapshot.forEach((docSnap) => bookmarks.push({ id: docSnap.id, ...docSnap.data() }));
   bookmarks.sort((a, b) => (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0));
   return bookmarks;
 }
 
-export async function removeBookmark(spotifyUserId, playlistId) {
+export async function removeBookmark(spotifyUserId, key) {
   await ensureReady();
-  await deleteDoc(playlistDocRef(spotifyUserId, playlistId));
+  await deleteDoc(contextDocRef(spotifyUserId, key));
 }

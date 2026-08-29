@@ -1,7 +1,7 @@
 import { POLL_INTERVAL_MS } from "./config.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
-import { getCurrentUser, getPlaybackState, getPlaylistName, resumePlayback } from "./spotifyApi.js";
-import { saveBookmark, listBookmarks, removeBookmark } from "./firebaseBookmarks.js";
+import { getCurrentUser, getPlaybackState, getContextName, resumePlayback } from "./spotifyApi.js";
+import { saveBookmark, listBookmarks, removeBookmark, contextKey } from "./firebaseBookmarks.js";
 
 const el = {
   loginView: document.getElementById("login-view"),
@@ -18,8 +18,8 @@ const el = {
 };
 
 let spotifyUserId = null;
-let currentSnapshot = null; // latest playback snapshot (may have no playlist context)
-let lastPlaylistSnapshot = null; // last snapshot seen WHILE inside a playlist context
+let currentSnapshot = null; // latest playback snapshot (may have no resumable context)
+let lastContextSnapshot = null; // last snapshot seen WHILE inside a playlist/album context
 let pollHandle = null;
 
 function showToast(message, ms = 3500) {
@@ -41,13 +41,16 @@ function renderNowPlaying() {
     return;
   }
 
-  const { track, playlist, isPlaying } = currentSnapshot;
+  const { track, context, isPlaying } = currentSnapshot;
+  const contextLabel = context
+    ? `In ${context.type}`
+    : "Not in a playlist or album context";
   el.nowPlaying.innerHTML = `
     <span class="track-name">${escapeHtml(track.name)}</span>
     <span class="track-meta">${escapeHtml(track.artists)}${isPlaying ? "" : " (paused)"}</span>
-    <span class="track-meta">${playlist ? "In playlist" : "Not in a playlist context"}</span>
+    <span class="track-meta">${contextLabel}</span>
   `;
-  el.bookmarkBtn.disabled = !playlist;
+  el.bookmarkBtn.disabled = !context;
 }
 
 function escapeHtml(str) {
@@ -57,11 +60,13 @@ function escapeHtml(str) {
 }
 
 async function buildBookmarkFromSnapshot(snapshot) {
-  const playlistName = await getPlaylistName(snapshot.playlist.id);
+  const { type, id, uri } = snapshot.context;
+  const contextName = await getContextName(type, id);
   return {
-    playlistId: snapshot.playlist.id,
-    playlistUri: snapshot.playlist.uri,
-    playlistName,
+    contextType: type,
+    contextId: id,
+    contextUri: uri,
+    contextName,
     trackId: snapshot.track.id,
     trackUri: snapshot.track.uri,
     trackName: snapshot.track.name,
@@ -80,7 +85,7 @@ async function refreshBookmarkList() {
     li.className = "bookmark-item";
     const updated = bm.updatedAt?.toDate ? bm.updatedAt.toDate().toLocaleString() : "";
     li.innerHTML = `
-      <div class="playlist-name">${escapeHtml(bm.playlistName)}</div>
+      <div class="context-name">${escapeHtml(bm.contextName)}<span class="context-type">${escapeHtml(bm.contextType)}</span></div>
       <div class="track-line">${escapeHtml(bm.trackName)} — ${escapeHtml(bm.artists)}</div>
       <div class="updated">Last updated ${escapeHtml(updated)}</div>
       <div class="bookmark-actions">
@@ -97,11 +102,11 @@ async function refreshBookmarkList() {
 async function onResume(bookmark) {
   try {
     await resumePlayback({
-      playlistUri: bookmark.playlistUri,
+      contextUri: bookmark.contextUri,
       trackUri: bookmark.trackUri,
       positionMs: bookmark.positionMs,
     });
-    showToast(`Resumed ${bookmark.playlistName} at ${bookmark.trackName}`);
+    showToast(`Resumed ${bookmark.contextName} at ${bookmark.trackName}`);
     // Give Spotify a moment to update state, then refresh the display.
     setTimeout(pollOnce, 1500);
   } catch (err) {
@@ -114,7 +119,7 @@ async function onResume(bookmark) {
 
 async function onRemove(bookmark) {
   try {
-    await removeBookmark(spotifyUserId, bookmark.playlistId);
+    await removeBookmark(spotifyUserId, bookmark.id);
     await refreshBookmarkList();
   } catch (err) {
     console.error(err);
@@ -123,7 +128,7 @@ async function onRemove(bookmark) {
 }
 
 async function onManualBookmark() {
-  if (!currentSnapshot?.playlist) return;
+  if (!currentSnapshot?.context) return;
   el.bookmarkBtn.disabled = true;
   setBookmarkStatus("Saving…");
   try {
@@ -135,7 +140,7 @@ async function onManualBookmark() {
     console.error(err);
     setBookmarkStatus("Couldn't save bookmark.", "error");
   } finally {
-    el.bookmarkBtn.disabled = !currentSnapshot?.playlist;
+    el.bookmarkBtn.disabled = !currentSnapshot?.context;
   }
 }
 
@@ -149,14 +154,16 @@ async function pollOnce() {
     return;
   }
 
-  const previousPlaylistId = lastPlaylistSnapshot?.playlist?.id ?? null;
-  const newPlaylistId = snapshot?.playlist?.id ?? null;
+  const contextKeyOf = (snap) =>
+    snap?.context ? contextKey(snap.context.type, snap.context.id) : null;
+  const previousKey = contextKeyOf(lastContextSnapshot);
+  const newKey = contextKeyOf(snapshot);
 
-  // Left a playlist context (switched playlists, went to a non-playlist
+  // Left a context (switched playlist/album, went to a non-resumable
   // context, or stopped) — auto-save wherever we last were.
-  if (previousPlaylistId && previousPlaylistId !== newPlaylistId) {
+  if (previousKey && previousKey !== newKey) {
     try {
-      const bookmark = await buildBookmarkFromSnapshot(lastPlaylistSnapshot);
+      const bookmark = await buildBookmarkFromSnapshot(lastContextSnapshot);
       await saveBookmark(spotifyUserId, bookmark);
       await refreshBookmarkList();
     } catch (err) {
@@ -165,8 +172,7 @@ async function pollOnce() {
   }
 
   currentSnapshot = snapshot;
-  if (snapshot?.playlist) lastPlaylistSnapshot = snapshot;
-  else lastPlaylistSnapshot = null;
+  lastContextSnapshot = snapshot?.context ? snapshot : null;
 
   renderNowPlaying();
 }

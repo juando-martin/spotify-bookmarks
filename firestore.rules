@@ -8,7 +8,7 @@ rules_version = '2';
 // js/firebaseBookmarks.js for what this does and doesn't protect against.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /bookmarks/{spotifyUserId}/playlists/{playlistId} {
+    match /bookmarks/{spotifyUserId}/contexts/{contextKey} {
       allow read, write: if request.auth != null;
     }
   }
