@@ -2,6 +2,7 @@
 import { POLL_INTERVAL_MS } from "./config.js";
 import { APP_VERSION } from "./version.js";
 import {
+  bookmarkMatches,
   bookmarkName,
   bookmarkUsedMs,
   buildImportBookmark,
@@ -36,6 +37,8 @@ const el = {
   bookmarkStatus: document.getElementById("bookmark-status"),
   bookmarkList: document.getElementById("bookmark-list"),
   bookmarkEmpty: document.getElementById("bookmark-empty"),
+  bookmarkFilter: document.getElementById("bookmark-filter"),
+  bookmarkNoMatch: document.getElementById("bookmark-no-match"),
   exportBtn: document.getElementById("export-btn"),
   exportText: document.getElementById("export-text"),
   importText: document.getElementById("import-text"),
@@ -286,27 +289,37 @@ function usedAtMs(bm) {
   return Math.max(bookmarkUsedMs(bm), locallyUsedAt.get(bm.id) ?? 0);
 }
 
+let allBookmarks = [];
+
 async function refreshBookmarkList() {
-  const all = await listBookmarks(spotifyUserId);
+  allBookmarks = await listBookmarks(spotifyUserId);
   // Drop local "just used" marks the server value has now caught up to.
-  for (const b of all) {
+  for (const b of allBookmarks) {
     if ((locallyUsedAt.get(b.id) ?? 0) <= bookmarkUsedMs(b)) locallyUsedAt.delete(b.id);
   }
   customNameByContext.clear();
   bookmarkedContexts.clear();
-  for (const b of all) {
+  for (const b of allBookmarks) {
     bookmarkedContexts.add(b.id); // b.id is the contextKey
     if (b.customName) customNameByContext.set(b.id, b.customName);
   }
-  // Hide a bookmark that's mid-Undo so a background re-render doesn't resurrect it.
-  const bookmarks = pendingRemoval
-    ? all.filter((b) => b.id !== pendingRemoval.bookmark.id)
-    : all;
-  // Re-sort with local marks applied (listBookmarks only sees the server value).
+  renderBookmarks();
+}
+
+/** Render allBookmarks, applying the filter box and the local-mark sort. */
+function renderBookmarks() {
+  const q = el.bookmarkFilter.value.trim().toLowerCase();
+  el.bookmarkFilter.hidden = allBookmarks.length === 0;
+
+  let bookmarks = pendingRemoval
+    ? allBookmarks.filter((b) => b.id !== pendingRemoval.bookmark.id)
+    : allBookmarks.slice();
+  if (q) bookmarks = bookmarks.filter((b) => bookmarkMatches(b, q));
   bookmarks.sort((a, b) => usedAtMs(b) - usedAtMs(a));
 
   el.bookmarkList.innerHTML = "";
-  el.bookmarkEmpty.hidden = bookmarks.length > 0;
+  el.bookmarkEmpty.hidden = allBookmarks.length > 0;
+  el.bookmarkNoMatch.hidden = !(q && allBookmarks.length > 0 && bookmarks.length === 0);
 
   for (const bm of bookmarks) {
     const li = document.createElement("li");
@@ -884,6 +897,7 @@ function enterLoggedOut() {
   clearTimeout(searchTimer);
   el.searchInput.value = "";
   el.searchResults.replaceChildren();
+  el.bookmarkFilter.value = "";
   el.loginView.hidden = false;
   el.appView.hidden = true;
 }
@@ -914,6 +928,8 @@ async function init() {
     enterLoggedOut();
   });
   el.bookmarkBtn.addEventListener("click", onManualBookmark);
+  el.bookmarkFilter.addEventListener("input", renderBookmarks);
+  el.bookmarkFilter.addEventListener("search", renderBookmarks); // "x" clear
   el.exportBtn.addEventListener("click", onExport);
   el.importBtn.addEventListener("click", onImport);
   el.deviceCancel.addEventListener("click", hideDevicePicker);

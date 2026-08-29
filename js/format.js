@@ -26,6 +26,15 @@ export function bookmarkName(bm) {
   return bm.customName || bm.contextName || "Unnamed";
 }
 
+/** Does a bookmark match a filter string? Matches its name, track, or artists. */
+export function bookmarkMatches(bm, query) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return true;
+  return `${bookmarkName(bm)} ${bm.trackName || ""} ${bm.artists || ""}`
+    .toLowerCase()
+    .includes(q);
+}
+
 /** Milliseconds -> "m:ss" (or "h:mm:ss" past an hour). Clamps junk to "0:00". */
 export function formatDuration(ms) {
   const total = Math.max(0, Math.round((Number(ms) || 0) / 1000));

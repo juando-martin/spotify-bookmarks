@@ -95,8 +95,11 @@
 
       <section class="card">
         <h2>Your bookmarks</h2>
+        <input id="bookmark-filter" type="search" autocomplete="off" spellcheck="false"
+               placeholder="Filter bookmarks…" aria-label="Filter bookmarks" hidden />
         <ul id="bookmark-list"></ul>
         <p id="bookmark-empty" hidden>No bookmarks yet — play a playlist or album and tap "Bookmark this spot", or just switch away from one and it'll save automatically.</p>
+        <p id="bookmark-no-match" class="status" hidden>No bookmarks match that.</p>
 
         <details id="backup-section">
           <summary>Backup &amp; restore</summary>

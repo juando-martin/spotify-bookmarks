@@ -6,6 +6,7 @@ import {
   contextKey,
   escapeHtml,
   bookmarkName,
+  bookmarkMatches,
   formatDuration,
   formatRelative,
   spotifyWebUrl,
@@ -286,4 +287,22 @@ test("buildImportBookmark output has only the whitelisted fields", () => {
     "artists", "contextId", "contextName", "contextType", "contextUri",
     "customName", "imageUrl", "positionMs", "trackId", "trackName", "trackUri",
   ]);
+});
+
+// --- bookmarkMatches --------------------------------------------------------
+
+test("bookmarkMatches searches name, track and artists, case-insensitively", () => {
+  const bm = { customName: "Dido Mix", contextName: "Unknown playlist", trackName: "Thank You", artists: "Dido" };
+  assert.equal(bookmarkMatches(bm, ""), true);         // blank matches everything
+  assert.equal(bookmarkMatches(bm, "  "), true);
+  assert.equal(bookmarkMatches(bm, "dido"), true);     // custom name
+  assert.equal(bookmarkMatches(bm, "THANK"), true);    // track, case-insensitive
+  assert.equal(bookmarkMatches(bm, "you"), true);
+  assert.equal(bookmarkMatches(bm, "coldplay"), false);
+});
+
+test("bookmarkMatches falls back to contextName and tolerates missing fields", () => {
+  assert.equal(bookmarkMatches({ contextName: "Discover Weekly" }, "weekly"), true);
+  assert.equal(bookmarkMatches({}, "anything"), false);
+  assert.equal(bookmarkMatches({}, ""), true);
 });

@@ -35,6 +35,10 @@ Original backlog #1–#12, plus everything added along the way:
   tapping a result plays it from the start (`resumePlayback` now takes an
   optional trackUri; without one it sends `offset: { position: 0 }`).
   `setupFoldable()` helper shared with the Settings card.
+- **Bookmark filter** — a search box in the bookmarks card; `renderBookmarks()`
+  filters `allBookmarks` client-side via `bookmarkMatches()` (in `format.js`,
+  unit-tested) on name / track / artist. `refreshBookmarkList` now caches the
+  fetched list so filtering is a pure re-render.
 
 ## Left
 

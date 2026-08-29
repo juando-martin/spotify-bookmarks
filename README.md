@@ -21,7 +21,8 @@ it's a normal `git push` to deploy.
 - **Now playing card** — album art, track / album / playlist name, and
   **⏮ / ⏯ / ⏭** transport controls for the active device.
 - **Bookmark list** — album-art thumbnail, saved position ("resumes at
-  2:34"), last-used relative time, ordered most-recently-used first.
+  2:34"), last-used relative time, ordered most-recently-used first, with a
+  filter box (matches name / track / artist).
 - **Rename** any bookmark (✎). Needed for Spotify's editorial "Mix"
   playlists, whose real name the Web API won't hand back; your name then
   shows on the Now playing card too.

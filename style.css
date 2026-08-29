@@ -89,7 +89,8 @@ details.card[open] > summary {
   gap: 0.6rem;
 }
 
-#context-search {
+#context-search,
+#bookmark-filter {
   font: inherit;
   width: 100%;
   box-sizing: border-box;
@@ -98,6 +99,10 @@ details.card[open] > summary {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.55rem 0.75rem;
+}
+
+#bookmark-filter {
+  margin-bottom: 0.75rem;
 }
 
 #search-results {
