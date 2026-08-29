@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Playlist Resume</title>
+  <meta name="theme-color" content="#121212" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>🎧 Playlist Resume</h1>
+  </header>
+
+  <main>
+    <section id="login-view">
+      <p>Bookmark exactly where you are in a Spotify playlist, and jump back in later.</p>
+      <button id="login-btn" class="primary">Log in with Spotify</button>
+    </section>
+
+    <section id="app-view" hidden>
+      <div class="row between">
+        <span id="user-greeting"></span>
+        <button id="logout-btn" class="link">Log out</button>
+      </div>
+
+      <section id="now-playing-card" class="card">
+        <h2>Now playing</h2>
+        <div id="now-playing">Checking Spotify…</div>
+        <button id="bookmark-btn" class="primary" disabled>Bookmark this spot</button>
+        <p id="bookmark-status" class="status"></p>
+      </section>
+
+      <section class="card">
+        <h2>Your bookmarks</h2>
+        <ul id="bookmark-list"></ul>
+        <p id="bookmark-empty" hidden>No bookmarks yet — play a playlist and tap "Bookmark this spot", or just switch away from one and it'll save automatically.</p>
+      </section>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
