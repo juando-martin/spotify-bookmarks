@@ -907,7 +907,7 @@ const COPYRIGHT = "© 2026 Juan D. Martin";
 async function init() {
   const versionEl = document.getElementById("app-version");
   if (versionEl) versionEl.textContent = `${COPYRIGHT} · v${APP_VERSION}`;
-  console.info(`Playlist Resume v${APP_VERSION} — ${COPYRIGHT}`);
+  console.info(`My Spot v${APP_VERSION} — ${COPYRIGHT}`);
 
   el.updateReload.addEventListener("click", applyUpdate);
   checkForUpdate();

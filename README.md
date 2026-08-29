@@ -1,8 +1,8 @@
-# Playlist Resume
+# My Spot
 
 Bookmark exactly where you are in a Spotify playlist or album — track +
 position — and jump back in later with the queue continuing normally.
-Installable on Android as a home-screen PWA.
+Installable on Android as a home-screen PWA (repo name: `spotify-bookmarks`).
 
 Static site (plain ES modules, no build step), hosted on GitHub Pages, with
 Firestore for bookmark storage and Spotify's Web API + PKCE OAuth for

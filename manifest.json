@@ -1,7 +1,7 @@
 {
-  "name": "Playlist Resume",
-  "short_name": "Resume",
-  "description": "Bookmark and resume Spotify tracks inside their original playlist or album.",
+  "name": "My Spot — your place in a Spotify playlist",
+  "short_name": "My Spot",
+  "description": "Bookmark your exact spot in a Spotify playlist or album and jump back in later.",
   "start_url": ".",
   "scope": ".",
   "shortcuts": [
