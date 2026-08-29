@@ -96,8 +96,28 @@ button.link {
 }
 
 #now-playing {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
   margin-bottom: 0.75rem;
   line-height: 1.4;
+}
+
+.np-art {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #2c2c2c;
+}
+
+.np-art-empty {
+  border: 1px solid var(--border);
+}
+
+.np-text {
+  min-width: 0;
 }
 
 #now-playing .track-name {
@@ -106,6 +126,7 @@ button.link {
 }
 
 #now-playing .track-meta {
+  display: block;
   color: var(--muted);
   font-size: 0.9rem;
 }

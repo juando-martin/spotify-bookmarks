@@ -4,7 +4,7 @@
 //
 // Bump CACHE_NAME whenever you change any shell file and redeploy, so
 // installed devices pick up the update instead of serving a stale cache.
-const CACHE_NAME = "playlist-resume-shell-v6";
+const CACHE_NAME = "playlist-resume-shell-v7";
 
 const SHELL_FILES = [
   "./",

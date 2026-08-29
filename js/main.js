@@ -75,13 +75,26 @@ function renderNowPlaying() {
   }
 
   const { track, context, isPlaying } = currentSnapshot;
-  const contextLabel = context
-    ? `In ${context.type}`
-    : "Not in a playlist or album context";
+  let contextLabel;
+  if (!context) {
+    contextLabel = "Not in a playlist or album context";
+  } else if (context.name) {
+    contextLabel = `In ${context.type} · ${context.name}`;
+  } else {
+    contextLabel = `In ${context.type}`;
+  }
+
+  const art = track.imageUrl
+    ? `<img class="np-art" src="${escapeHtml(track.imageUrl)}" alt="" width="64" height="64" />`
+    : `<div class="np-art np-art-empty" aria-hidden="true"></div>`;
+
   el.nowPlaying.innerHTML = `
-    <span class="track-name">${escapeHtml(track.name)}</span>
-    <span class="track-meta">${escapeHtml(track.artists)}${isPlaying ? "" : " (paused)"}</span>
-    <span class="track-meta">${contextLabel}</span>
+    ${art}
+    <div class="np-text">
+      <span class="track-name">${escapeHtml(track.name)}</span>
+      <span class="track-meta">${escapeHtml(track.artists)}${isPlaying ? "" : " (paused)"}</span>
+      <span class="track-meta">${escapeHtml(contextLabel)}</span>
+    </div>
   `;
   el.bookmarkBtn.disabled = !context;
 }
@@ -224,6 +237,19 @@ async function pollOnce() {
 
   currentSnapshot = snapshot;
   lastContextSnapshot = snapshot?.context ? snapshot : null;
+
+  // Resolve the playlist/album name for the Now playing card. Albums already
+  // carry it; playlists need one lookup (cached in memory after the first).
+  if (snapshot?.context && !snapshot.context.name) {
+    try {
+      snapshot.context.name = await getContextName(
+        snapshot.context.type,
+        snapshot.context.id,
+      );
+    } catch {
+      /* leave name null — the card just shows "In playlist" */
+    }
+  }
 
   renderNowPlaying();
 }

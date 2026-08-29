@@ -7,7 +7,8 @@ files it touches.
 **Done:** #1 (album name from payload), #3 (album art thumbnails), #5 (429
 backoff) — shipped together. Also folded in: `escapeHtml` now escapes quotes
 so it's attribute-safe, and `getContextName` no longer caches a failed
-lookup.
+lookup. Plus: the Now playing card shows the playlist/album name and the
+current track's album art.
 
 ---
 
