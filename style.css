@@ -370,13 +370,17 @@ button.link {
 }
 
 .device-btn {
+  display: block;
+  box-sizing: border-box;
   width: 100%;
   text-align: left;
+  text-decoration: none;
   background: #2c2c2c;
   color: var(--text);
   border: 1px solid var(--border);
   padding: 0.6rem 0.9rem;
   border-radius: 8px;
+  font: inherit;
 }
 
 .toast {

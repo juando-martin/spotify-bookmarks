@@ -106,10 +106,13 @@ Redirect URI matches the real deployed URL).
 ### Notes / known constraints
 
 - Spotify's `Start/Resume Playback` endpoint requires an **active device**.
-  If Resume finds none but Spotify still knows about idle devices (e.g. the
-  desktop app open but paused), the app shows a "Resume on which device?"
-  picker and transfers playback to the one you tap. Only when there are no
-  devices at all does it fall back to the "open Spotify first" error.
+  When Resume finds none:
+  - exactly one known (idle) device → it just starts there;
+  - two or more → a picker to choose;
+  - none at all → an **"Open … in Spotify"** link (deep-links to the
+    bookmarked playlist/album via `open.spotify.com`, which hands off to the
+    app on a phone). Open it, then tap Resume again — the phone is now a
+    device, so it plays straight away.
 - Each bookmark shows the saved position ("resumes at 2:34") and when it was
   last used as a relative time ("used 3 hours ago"; hover/long-press for the
   exact timestamp).

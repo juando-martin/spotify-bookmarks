@@ -22,6 +22,7 @@ const el = {
   bookmarkList: document.getElementById("bookmark-list"),
   bookmarkEmpty: document.getElementById("bookmark-empty"),
   devicePicker: document.getElementById("device-picker"),
+  devicePickerMsg: document.getElementById("device-picker-msg"),
   deviceList: document.getElementById("device-list"),
   deviceCancel: document.getElementById("device-cancel"),
   autoBookmarkToggle: document.getElementById("auto-bookmark-toggle"),
@@ -355,34 +356,58 @@ async function onResume(bookmark, deviceId) {
     setTimeout(pollOnce, 1500);
   } catch (err) {
     console.error(err);
-    // 404 from the play endpoint = no active device. If Spotify knows about
-    // any idle devices, offer them; otherwise fall back to the plain error.
+    // 404 from the play endpoint = no active device.
     if (!deviceId && /\b404\b/.test(err.message)) {
       const devices = (await getDevices().catch(() => [])).filter((d) => !d.is_restricted);
-      if (devices.length) {
-        showDevicePicker(bookmark, devices);
-        return;
+      if (devices.length === 1) {
+        // Only one place it could go — just start it there.
+        return onResume(bookmark, devices[0].id);
       }
-      showToast("Couldn't resume — open Spotify on a device first, then try again.");
+      showResumeTargets(bookmark, devices); // 0 -> "open Spotify", 2+ -> pick one
       return;
     }
     showToast("Couldn't resume playback.");
   }
 }
 
-function showDevicePicker(bookmark, devices) {
+/** spotify:playlist:xxx -> https://open.spotify.com/playlist/xxx (opens the app if installed). */
+function spotifyWebUrl(uri) {
+  const [scheme, kind, id] = (uri || "").split(":");
+  return scheme === "spotify" && kind && id
+    ? `https://open.spotify.com/${kind}/${id}`
+    : "https://open.spotify.com";
+}
+
+function showResumeTargets(bookmark, devices) {
   el.deviceList.innerHTML = "";
-  for (const d of devices) {
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.className = "device-btn";
-    btn.textContent = d.is_active ? `${d.name} (active)` : d.name;
-    btn.addEventListener("click", () => onResume(bookmark, d.id));
-    li.appendChild(btn);
-    el.deviceList.appendChild(li);
+  if (devices.length) {
+    el.devicePickerMsg.textContent = "Nothing is playing right now — pick where to start.";
+    for (const d of devices) {
+      const btn = document.createElement("button");
+      btn.className = "device-btn";
+      btn.textContent = d.is_active ? `${d.name} (active)` : d.name;
+      btn.addEventListener("click", () => onResume(bookmark, d.id));
+      el.deviceList.appendChild(wrapLi(btn));
+    }
+  } else {
+    el.devicePickerMsg.textContent =
+      "No Spotify device is available. Open Spotify, then tap Resume again.";
+    const link = document.createElement("a");
+    link.className = "device-btn";
+    link.href = spotifyWebUrl(bookmark.contextUri);
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = `Open ${bookmarkName(bookmark)} in Spotify`;
+    el.deviceList.appendChild(wrapLi(link));
   }
   el.devicePicker.hidden = false;
   el.devicePicker.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function wrapLi(child) {
+  const li = document.createElement("li");
+  li.appendChild(child);
+  return li;
 }
 
 function hideDevicePicker() {
