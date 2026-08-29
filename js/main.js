@@ -140,8 +140,9 @@ function renderTransport() {
   if (!el.transport) return; // stale cached HTML without the transport markup
   const playing = !!currentSnapshot?.isPlaying;
   el.transport.hidden = !currentSnapshot;
-  el.iconPlay.hidden = playing;
-  el.iconPause.hidden = !playing;
+  // toggleAttribute, not .hidden — .hidden isn't reflected on SVG elements.
+  el.iconPlay.toggleAttribute("hidden", playing);
+  el.iconPause.toggleAttribute("hidden", !playing);
   el.playPauseBtn.setAttribute("aria-label", playing ? "Pause" : "Play");
 }
 
