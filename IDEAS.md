@@ -4,7 +4,7 @@ Loose backlog — not prioritized formally, not tracked anywhere. Pick items
 off as we feel like it. Each note says what, why, rough size, and which
 files it touches.
 
-**Done so far:** #1, #2, #3, #4, #5, #8, #9. Also folded in along the way:
+**Done so far:** #1, #2, #3, #4, #5, #6, #7, #8, #9, #10. Also folded in along the way:
 `escapeHtml` escapes quotes (attribute-safe); `getContextName` doesn't cache
 a failed lookup; the Now playing card shows album art + album name + playlist
 name (needed the `playlist-read-private` / `-collaborative` scopes); the
@@ -73,7 +73,7 @@ back off instead of hammering.
 - **Size:** small–medium.
 - **Files:** `js/spotifyApi.js` (`apiFetch`).
 
-### 6. Pause polling when the tab is hidden
+### 6. Pause polling when the tab is hidden — DONE (?background opts out)
 
 On mobile the poll loop keeps making API calls in a backgrounded tab (and
 gets throttled unpredictably by the browser anyway). Pause on
@@ -88,7 +88,7 @@ becomes visible again.
   wouldn't be affected — but double-check that assumption when implementing
   (may want an explicit opt-out, e.g. a query param or setting).
 
-### 7. Dedupe concurrent token refresh
+### 7. Dedupe concurrent token refresh — DONE
 
 If two requests hit token expiry at the same moment (e.g. a poll tick and a
 Resume), both POST to `/api/token`. Cache the in-flight refresh promise and
@@ -130,7 +130,7 @@ re-saves the just-deleted doc for a few seconds.
 
 ## Bigger / optional
 
-### 10. Manifest shortcut: "Resume last played"
+### 10. Manifest shortcut: "Resume last played" — DONE
 
 Add a `shortcuts` entry to `manifest.json` so long-pressing the home-screen
 icon offers "Resume last played" — deep-links into the app with a param that
@@ -171,5 +171,4 @@ comparator. Extract them if needed and add a small test file (e.g. `node
 
 ## Remaining
 
-#6 (pause polling when hidden), #7 (dedupe token refresh), #10 (manifest
-"Resume last played" shortcut), #11 (podcast episodes), #12 (unit tests).
+#11 (podcast episodes), #12 (unit tests).

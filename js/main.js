@@ -53,6 +53,12 @@ function saveSettings() {
 
 const settings = loadSettings();
 
+// The kiosk / always-on setup (see README) launches with ?background to keep
+// the poll loop running even when the page isn't the visible tab.
+const KEEP_POLLING_WHEN_HIDDEN = new URLSearchParams(location.search).has("background");
+// PWA shortcut intent — read before anything rewrites the URL.
+const shortcutAction = new URLSearchParams(location.search).get("action");
+
 let spotifyUserId = null;
 let currentSnapshot = null; // latest playback snapshot (may have no resumable context)
 let lastContextSnapshot = null; // last snapshot seen WHILE inside a playlist/album context
@@ -369,6 +375,8 @@ async function pollOnce() {
 
 function startPolling() {
   stopPolling();
+  // Don't burn API calls polling a hidden tab; visibilitychange resumes it.
+  if (document.hidden && !KEEP_POLLING_WHEN_HIDDEN) return;
   pollOnce();
   pollHandle = setInterval(pollOnce, settings.pollIntervalMs);
 }
@@ -376,6 +384,15 @@ function startPolling() {
 function stopPolling() {
   if (pollHandle) clearInterval(pollHandle);
   pollHandle = null;
+}
+
+function handleVisibilityChange() {
+  if (KEEP_POLLING_WHEN_HIDDEN || !isLoggedIn()) return;
+  if (document.hidden) {
+    stopPolling();
+  } else {
+    startPolling(); // fires an immediate catch-up poll
+  }
 }
 
 async function enterApp() {
@@ -388,6 +405,22 @@ async function enterApp() {
 
   await refreshBookmarkList();
   startPolling();
+
+  if (shortcutAction === "resume-last") await resumeLastBookmark();
+}
+
+async function resumeLastBookmark() {
+  try {
+    const bookmarks = await listBookmarks(spotifyUserId);
+    if (!bookmarks.length) {
+      showToast("No bookmarks to resume yet.");
+      return;
+    }
+    await onResume(bookmarks[0]); // list is most-recently-used first
+  } catch (err) {
+    console.error("Resume-last shortcut failed:", err);
+    showToast("Couldn't resume your last bookmark.");
+  }
 }
 
 function enterLoggedOut() {
@@ -412,6 +445,15 @@ async function init() {
   });
   el.bookmarkBtn.addEventListener("click", onManualBookmark);
   el.deviceCancel.addEventListener("click", hideDevicePicker);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  // Strip the one-shot shortcut param so a manual reload doesn't re-fire it.
+  if (shortcutAction) {
+    const params = new URLSearchParams(location.search);
+    params.delete("action");
+    const qs = params.toString();
+    history.replaceState({}, "", location.pathname + (qs ? `?${qs}` : "") + location.hash);
+  }
 
   el.autoBookmarkToggle.checked = settings.autoBookmark;
   el.autoBookmarkToggle.addEventListener("change", () => {

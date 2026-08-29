@@ -108,7 +108,18 @@ function storeTokens({ access_token, refresh_token, expires_in }) {
   localStorage.setItem(STORAGE_KEYS.expiresAt, String(expiresAt));
 }
 
-async function refreshAccessToken() {
+// If several requests notice the token has expired at the same time, they'd
+// each fire a refresh. Share one in-flight refresh between all of them.
+let refreshInFlight = null;
+
+function refreshAccessToken() {
+  if (!refreshInFlight) {
+    refreshInFlight = performRefresh().finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
+}
+
+async function performRefresh() {
   const refreshToken = localStorage.getItem(STORAGE_KEYS.refreshToken);
   if (!refreshToken) throw new Error("Not logged in.");
 

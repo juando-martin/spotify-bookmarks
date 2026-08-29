@@ -154,11 +154,16 @@ Redirect URI matches the real deployed URL).
     tighter precision at the cost of more API calls.
   Both are stored per-device in `localStorage`. `POLL_INTERVAL_MS` in
   `js/config.js` is only the default before you touch the dropdown.
-- Polling only runs **while the app is open and in the foreground**. On
-  Android, closing the PWA (or backgrounding it for a while) stops or
-  heavily throttles the poll loop, so switches made with the app closed
-  aren't auto-captured. Manual bookmarking and Resume are unaffected. See
-  "Always-on auto-bookmark" below if you want it to run 24/7.
+- Polling only runs **while the app is the visible tab**. It's paused on
+  `visibilitychange` when hidden and does one immediate catch-up poll when
+  you come back, so backgrounding the app (or closing the PWA) means
+  switches made in the meantime aren't auto-captured. Manual bookmarking and
+  Resume are unaffected. The always-on setup below passes `?background` to
+  opt out of this pause. See "Always-on auto-bookmark" if you want 24/7.
+- The PWA exposes a **"Resume last played"** shortcut (long-press the
+  home-screen icon on Android, right-click the taskbar icon on desktop) that
+  opens the app and immediately resumes your most-recently-used bookmark —
+  it just loads `./?action=resume-last`.
 - The Firestore security model is intentionally simple for a personal /
   small-allowlist app — see the comment block at the top of
   `js/firebaseBookmarks.js` before sharing this more widely.
@@ -173,7 +178,7 @@ sw.js                     Service worker — network-first shell cache (offline 
 firestore.rules           Firestore security rules to paste into the Firebase console
 js/config.js              YOUR Spotify + Firebase config (fill in per steps above)
 js/pkce.js                PKCE code_verifier/code_challenge helpers
-js/auth.js                Spotify OAuth login/redirect/token refresh
+js/auth.js                Spotify OAuth login/redirect/token refresh (shared single-flight)
 js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, playlist name; 429 backoff)
 js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist/album per user)
 js/main.js                Wires it all together: UI, polling loop, auto-bookmark
@@ -182,19 +187,19 @@ icons/                    App icons for the PWA manifest
 
 ## Always-on auto-bookmark (optional)
 
-The app only polls while it's open and focused, so auto-bookmark-on-switch
+The app only polls while it's the visible tab, so auto-bookmark-on-switch
 only catches switches you make while looking at it. If you want it to run
 around the clock without writing any backend code, park the already-deployed
-page in a browser on an always-on machine (a Raspberry Pi, a NAS, an old
-laptop). That machine just becomes a persistent client — same code, same
-Firestore, nothing new to deploy.
+page — with `?background` so it never pauses — in a browser on an always-on
+machine (a Raspberry Pi, a NAS, an old laptop). That machine just becomes a
+persistent client — same code, same Firestore, nothing new to deploy.
 
 1. On the always-on machine, launch Chromium pointed at the deployed URL
-   with background throttling disabled (otherwise Chrome slows the poll loop
-   right down when the window isn't visible):
+   with `?background` (so the app keeps polling even when the window isn't
+   the visible tab) and background throttling disabled:
 
    ```bash
-   chromium --kiosk https://<your-username>.github.io/spotify-bookmarks/ \
+   chromium --kiosk "https://<your-username>.github.io/spotify-bookmarks/?background" \
      --user-data-dir="$HOME/.spotify-bookmarks-profile" \
      --disable-background-timer-throttling \
      --disable-backgrounding-occluded-windows \
