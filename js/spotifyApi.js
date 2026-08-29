@@ -116,12 +116,24 @@ export async function getContextName(type, id) {
   return name;
 }
 
+/** Spotify Connect devices this account can see (active or idle). */
+export async function getDevices() {
+  const res = await apiFetch("/me/player/devices");
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.devices || []; // [{ id, name, type, is_active, is_restricted }]
+}
+
 /**
  * Start/Resume Playback inside a specific context (playlist or album), at a
- * specific track, at a specific position within that track.
+ * specific track, at a specific position within that track. Pass deviceId to
+ * target (and transfer playback to) a specific idle device.
  */
-export async function resumePlayback({ contextUri, trackUri, positionMs }) {
-  const res = await apiFetch("/me/player/play", {
+export async function resumePlayback({ contextUri, trackUri, positionMs, deviceId }) {
+  const path = deviceId
+    ? `/me/player/play?device_id=${encodeURIComponent(deviceId)}`
+    : "/me/player/play";
+  const res = await apiFetch(path, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

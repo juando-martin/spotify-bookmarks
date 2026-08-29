@@ -4,13 +4,11 @@ Loose backlog — not prioritized formally, not tracked anywhere. Pick items
 off as we feel like it. Each note says what, why, rough size, and which
 files it touches.
 
-**Done:** #1 (album name from payload), #3 (album art thumbnails), #5 (429
-backoff) — shipped together. Also folded in: `escapeHtml` now escapes quotes
-so it's attribute-safe, and `getContextName` no longer caches a failed
-lookup. Plus: the Now playing card shows the current track's album art, the
-album name (always), and the playlist name when inside one — which needed
-the `playlist-read-private` / `-collaborative` scopes added. The service
-worker switched to network-first so deploys no longer need a double reload.
+**Done so far:** #1, #2, #3, #4, #5, #8, #9. Also folded in along the way:
+`escapeHtml` escapes quotes (attribute-safe); `getContextName` doesn't cache
+a failed lookup; the Now playing card shows album art + album name + playlist
+name (needed the `playlist-read-private` / `-collaborative` scopes); the
+service worker is network-first so deploys no longer need a double reload.
 
 ---
 
@@ -30,7 +28,7 @@ name isn't in the playback payload).
   the snapshot; `buildBookmarkFromSnapshot` / `getContextName` skip the fetch
   when it's already known).
 
-### 2. Show the saved position on each bookmark
+### 2. Show the saved position on each bookmark — DONE
 
 The list shows track + artist but not *where* in the track the bookmark
 sits. Add e.g. "resumes at 2:34" from the `positionMs` we already store.
@@ -52,7 +50,7 @@ on the bookmark doc and render it as a thumbnail in the list.
   `style.css`. New optional field `imageUrl` on the bookmark — old docs
   without it just render no thumbnail.
 
-### 4. Relative timestamps
+### 4. Relative timestamps — DONE
 
 "3 hours ago" instead of the full locale date string on each bookmark.
 
@@ -105,7 +103,7 @@ have both await it.
 
 ## UX friction
 
-### 8. Device awareness on Resume
+### 8. Device awareness on Resume — DONE
 
 The most common real-world failure is "Couldn't resume — open Spotify on a
 device first." Call `GET /me/player/devices`. If there's an inactive device,
@@ -117,7 +115,7 @@ genuinely nothing, keep the current honest error.
 - **Files:** `js/spotifyApi.js` (new `getDevices`, maybe `transferPlayback`),
   `js/main.js` (`onResume` flow + a little UI).
 
-### 9. Undo (or confirm) on Remove
+### 9. Undo (or confirm) on Remove — DONE (5s grace + Undo toast)
 
 Removing a bookmark is silent and immediate — one mis-tap and it's gone.
 Either a confirm step, or (nicer) an "Undo" action in the toast that
@@ -171,8 +169,7 @@ comparator. Extract them if needed and add a small test file (e.g. `node
 
 ---
 
-## Suggested first batch
+## Remaining
 
-1, 3, and 5 — free album name, thumbnails + saved position, and 429 handling.
-Small, independent, and they cover a visible UX bump plus the one real
-robustness gap.
+#6 (pause polling when hidden), #7 (dedupe token refresh), #10 (manifest
+"Resume last played" shortcut), #11 (podcast episodes), #12 (unit tests).

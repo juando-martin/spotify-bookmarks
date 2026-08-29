@@ -105,10 +105,16 @@ Redirect URI matches the real deployed URL).
 
 ### Notes / known constraints
 
-- Spotify's `Start/Resume Playback` endpoint requires an **active device**
-  (something with Spotify open). If nothing is open anywhere, Resume will
-  show an error asking you to open Spotify first — that's a Spotify API
-  limitation, not a bug here.
+- Spotify's `Start/Resume Playback` endpoint requires an **active device**.
+  If Resume finds none but Spotify still knows about idle devices (e.g. the
+  desktop app open but paused), the app shows a "Resume on which device?"
+  picker and transfers playback to the one you tap. Only when there are no
+  devices at all does it fall back to the "open Spotify first" error.
+- Each bookmark shows the saved position ("resumes at 2:34") and when it was
+  last used as a relative time ("used 3 hours ago"; hover/long-press for the
+  exact timestamp).
+- **Remove** deletes after a 5-second grace period with an **Undo** in the
+  toast; the delete only actually hits Firestore once that window passes.
 - Only **playlist** and **album** contexts can be bookmarked. Spotify also
   reports "artist" (e.g. artist radio / an artist page) and "show" (podcast)
   contexts, but those don't resume to an exact track + position reliably, so

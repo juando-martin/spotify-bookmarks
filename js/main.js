@@ -1,6 +1,6 @@
 import { POLL_INTERVAL_MS } from "./config.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
-import { getCurrentUser, getPlaybackState, getContextName, resumePlayback } from "./spotifyApi.js";
+import { getCurrentUser, getPlaybackState, getContextName, getDevices, resumePlayback } from "./spotifyApi.js";
 import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, contextKey } from "./firebaseBookmarks.js";
 
 const el = {
@@ -14,6 +14,9 @@ const el = {
   bookmarkStatus: document.getElementById("bookmark-status"),
   bookmarkList: document.getElementById("bookmark-list"),
   bookmarkEmpty: document.getElementById("bookmark-empty"),
+  devicePicker: document.getElementById("device-picker"),
+  deviceList: document.getElementById("device-list"),
+  deviceCancel: document.getElementById("device-cancel"),
   autoBookmarkToggle: document.getElementById("auto-bookmark-toggle"),
   pollIntervalSelect: document.getElementById("poll-interval-select"),
   toast: document.getElementById("toast"),
@@ -54,12 +57,57 @@ let spotifyUserId = null;
 let currentSnapshot = null; // latest playback snapshot (may have no resumable context)
 let lastContextSnapshot = null; // last snapshot seen WHILE inside a playlist/album context
 let pollHandle = null;
+let pendingRemoval = null; // { bookmark, timer } — a Remove awaiting its Undo grace period
 
-function showToast(message, ms = 3500) {
+/**
+ * Show a transient toast. Pass { actionLabel, onAction } for an inline
+ * button (e.g. Undo); ms controls how long it stays up.
+ */
+function showToast(message, { actionLabel, onAction, ms = 3500 } = {}) {
   el.toast.textContent = message;
   el.toast.hidden = false;
   clearTimeout(showToast._t);
+  if (actionLabel && onAction) {
+    const btn = document.createElement("button");
+    btn.className = "toast-action";
+    btn.textContent = actionLabel;
+    btn.addEventListener("click", () => {
+      clearTimeout(showToast._t);
+      el.toast.hidden = true;
+      onAction();
+    });
+    el.toast.append(" ", btn);
+  }
   showToast._t = setTimeout(() => { el.toast.hidden = true; }, ms);
+}
+
+/** Milliseconds -> "m:ss" (or "h:mm:ss" past an hour). */
+function formatDuration(ms) {
+  const total = Math.max(0, Math.round((ms || 0) / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+const relativeFmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+const RELATIVE_UNITS = [
+  ["year", 31536000000],
+  ["month", 2592000000],
+  ["week", 604800000],
+  ["day", 86400000],
+  ["hour", 3600000],
+  ["minute", 60000],
+];
+
+/** A Date -> "3 hours ago" / "yesterday" / "just now". */
+function formatRelative(date) {
+  const diff = date.getTime() - Date.now();
+  const abs = Math.abs(diff);
+  for (const [unit, unitMs] of RELATIVE_UNITS) {
+    if (abs >= unitMs) return relativeFmt.format(Math.round(diff / unitMs), unit);
+  }
+  return "just now";
 }
 
 function setBookmarkStatus(message, kind) {
@@ -128,15 +176,24 @@ async function buildBookmarkFromSnapshot(snapshot) {
 }
 
 async function refreshBookmarkList() {
-  const bookmarks = await listBookmarks(spotifyUserId);
+  const all = await listBookmarks(spotifyUserId);
+  // Hide a bookmark that's mid-Undo so a background re-render doesn't resurrect it.
+  const bookmarks = pendingRemoval
+    ? all.filter((b) => b.id !== pendingRemoval.bookmark.id)
+    : all;
+
   el.bookmarkList.innerHTML = "";
   el.bookmarkEmpty.hidden = bookmarks.length > 0;
 
   for (const bm of bookmarks) {
     const li = document.createElement("li");
     li.className = "bookmark-item";
-    const usedAt = bm.lastUsedAt ?? bm.updatedAt;
-    const used = usedAt?.toDate ? usedAt.toDate().toLocaleString() : "";
+
+    const usedDate = bm.lastUsedAt?.toDate?.() ?? bm.updatedAt?.toDate?.() ?? null;
+    const detail = [];
+    if (Number.isFinite(bm.positionMs)) detail.push(`resumes at ${formatDuration(bm.positionMs)}`);
+    if (usedDate) detail.push(`used ${formatRelative(usedDate)}`);
+
     const art = bm.imageUrl
       ? `<img class="bookmark-art" src="${escapeHtml(bm.imageUrl)}" alt="" width="52" height="52" loading="lazy" />`
       : `<div class="bookmark-art bookmark-art-empty" aria-hidden="true"></div>`;
@@ -146,7 +203,7 @@ async function refreshBookmarkList() {
         <div class="bookmark-text">
           <div class="context-name">${escapeHtml(bm.contextName)}<span class="context-type">${escapeHtml(bm.contextType)}</span></div>
           <div class="track-line">${escapeHtml(bm.trackName)} — ${escapeHtml(bm.artists)}</div>
-          <div class="updated">Last used ${escapeHtml(used)}</div>
+          <div class="updated"${usedDate ? ` title="${escapeHtml(usedDate.toLocaleString())}"` : ""}>${escapeHtml(detail.join(" · "))}</div>
         </div>
       </div>
       <div class="bookmark-actions">
@@ -155,18 +212,20 @@ async function refreshBookmarkList() {
       </div>
     `;
     li.querySelector(".resume-btn").addEventListener("click", () => onResume(bm));
-    li.querySelector(".remove-btn").addEventListener("click", () => onRemove(bm));
+    li.querySelector(".remove-btn").addEventListener("click", () => onRemove(bm, li));
     el.bookmarkList.appendChild(li);
   }
 }
 
-async function onResume(bookmark) {
+async function onResume(bookmark, deviceId) {
   try {
     await resumePlayback({
       contextUri: bookmark.contextUri,
       trackUri: bookmark.trackUri,
       positionMs: bookmark.positionMs,
+      deviceId,
     });
+    hideDevicePicker();
     showToast(`Resumed ${bookmark.contextName} at ${bookmark.trackName}`);
     // Resuming counts as "using" the bookmark — bump it to the top of the list.
     try {
@@ -178,21 +237,71 @@ async function onResume(bookmark) {
     // Give Spotify a moment to update state, then refresh the display.
     setTimeout(pollOnce, 1500);
   } catch (err) {
-    showToast(err.message.includes("404")
-      ? "Couldn't resume — open Spotify on a device first, then try again."
-      : "Couldn't resume playback.");
     console.error(err);
+    // 404 from the play endpoint = no active device. If Spotify knows about
+    // any idle devices, offer them; otherwise fall back to the plain error.
+    if (!deviceId && /\b404\b/.test(err.message)) {
+      const devices = (await getDevices().catch(() => [])).filter((d) => !d.is_restricted);
+      if (devices.length) {
+        showDevicePicker(bookmark, devices);
+        return;
+      }
+      showToast("Couldn't resume — open Spotify on a device first, then try again.");
+      return;
+    }
+    showToast("Couldn't resume playback.");
   }
 }
 
-async function onRemove(bookmark) {
-  try {
-    await removeBookmark(spotifyUserId, bookmark.id);
-    await refreshBookmarkList();
-  } catch (err) {
+function showDevicePicker(bookmark, devices) {
+  el.deviceList.innerHTML = "";
+  for (const d of devices) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.className = "device-btn";
+    btn.textContent = d.is_active ? `${d.name} (active)` : d.name;
+    btn.addEventListener("click", () => onResume(bookmark, d.id));
+    li.appendChild(btn);
+    el.deviceList.appendChild(li);
+  }
+  el.devicePicker.hidden = false;
+  el.devicePicker.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function hideDevicePicker() {
+  el.devicePicker.hidden = true;
+  el.deviceList.innerHTML = "";
+}
+
+/** Finalize a pending Remove now (its grace period elapsed, or we're leaving). */
+function commitRemoval() {
+  if (!pendingRemoval) return;
+  const { bookmark, timer } = pendingRemoval;
+  clearTimeout(timer);
+  pendingRemoval = null;
+  removeBookmark(spotifyUserId, bookmark.id).catch((err) => {
     console.error(err);
     showToast("Couldn't remove that bookmark.");
-  }
+    refreshBookmarkList();
+  });
+}
+
+function onRemove(bookmark, li) {
+  commitRemoval(); // flush any earlier pending removal first
+  li.remove();
+  const timer = setTimeout(commitRemoval, 5000);
+  pendingRemoval = { bookmark, timer };
+  showToast(`Removed “${bookmark.contextName}”`, {
+    actionLabel: "Undo",
+    ms: 5000,
+    onAction: () => {
+      if (pendingRemoval?.bookmark.id === bookmark.id) {
+        clearTimeout(pendingRemoval.timer);
+        pendingRemoval = null;
+      }
+      refreshBookmarkList();
+    },
+  });
 }
 
 async function onManualBookmark() {
@@ -283,6 +392,8 @@ async function enterApp() {
 
 function enterLoggedOut() {
   stopPolling();
+  commitRemoval();
+  hideDevicePicker();
   el.loginView.hidden = false;
   el.appView.hidden = true;
 }
@@ -294,11 +405,13 @@ async function init() {
 
   el.loginBtn.addEventListener("click", loginWithSpotify);
   el.logoutBtn.addEventListener("click", () => {
+    commitRemoval(); // finish any pending Remove while we still have the user id
     logout();
     spotifyUserId = null;
     enterLoggedOut();
   });
   el.bookmarkBtn.addEventListener("click", onManualBookmark);
+  el.deviceCancel.addEventListener("click", hideDevicePicker);
 
   el.autoBookmarkToggle.checked = settings.autoBookmark;
   el.autoBookmarkToggle.addEventListener("change", () => {
