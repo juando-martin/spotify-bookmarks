@@ -1,11 +1,17 @@
 // Firestore-backed bookmark storage.
 //
 // Data model: bookmarks/{spotifyUserId}/contexts/{contextKey}
-//   -> { contextType, contextId, contextUri, contextName, trackId,
-//        trackUri, trackName, artists, positionMs, updatedAt, lastUsedAt }
+//   -> { contextType, contextId, contextUri, contextName, customName,
+//        imageUrl, trackId, trackUri, trackName, artists, positionMs,
+//        updatedAt, lastUsedAt }
 //
-// updatedAt  = when the saved track/position last changed (a save).
-// lastUsedAt = when the bookmark was last touched in any way — a save OR a
+// contextName = the playlist/album name as Spotify's API returned it (may be
+//              "Unknown playlist" for editorial playlists a dev-mode app
+//              can't read).
+// customName  = a name the user typed to override contextName; null/absent
+//              means "use contextName". Survives re-saves (writes are merged).
+// updatedAt   = when the saved track/position last changed (a save).
+// lastUsedAt  = when the bookmark was last touched in any way — a save OR a
 //              Resume. The list is ordered by this, so the playlist/album
 //              you most recently interacted with floats to the top.
 //
@@ -67,16 +73,21 @@ function contextDocRef(spotifyUserId, key) {
   return doc(db, "bookmarks", spotifyUserId, "contexts", key);
 }
 
-/** Create or overwrite the single bookmark for this context. */
+/**
+ * Create or update the single bookmark for this context. Merged, not
+ * replaced, so a user's customName (and any future field) survives an
+ * auto-bookmark or a manual re-save — every core field is always supplied
+ * here anyway, so merge and overwrite behave the same for those.
+ */
 export async function saveBookmark(spotifyUserId, bookmark) {
   await ensureReady();
   const key = contextKey(bookmark.contextType, bookmark.contextId);
   const now = serverTimestamp();
-  await setDoc(contextDocRef(spotifyUserId, key), {
-    ...bookmark,
-    updatedAt: now,
-    lastUsedAt: now,
-  });
+  await setDoc(
+    contextDocRef(spotifyUserId, key),
+    { ...bookmark, updatedAt: now, lastUsedAt: now },
+    { merge: true },
+  );
 }
 
 /** Bump a bookmark's lastUsedAt without touching its saved position. */
@@ -85,6 +96,16 @@ export async function touchBookmark(spotifyUserId, key) {
   await setDoc(
     contextDocRef(spotifyUserId, key),
     { lastUsedAt: serverTimestamp() },
+    { merge: true },
+  );
+}
+
+/** Set a user-chosen display name (or null to revert to the Spotify name). */
+export async function renameBookmark(spotifyUserId, key, customName) {
+  await ensureReady();
+  await setDoc(
+    contextDocRef(spotifyUserId, key),
+    { customName: customName || null },
     { merge: true },
   );
 }

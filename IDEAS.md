@@ -174,3 +174,15 @@ comparator. Extract them if needed and add a small test file (e.g. `node
 ## Remaining
 
 #11 (podcast episodes), #12 (unit tests).
+
+---
+
+## Extra: rename bookmarks — DONE
+
+Not in the original list. Each bookmark has a ✎ button that inline-edits its
+name; `renameBookmark()` stores `customName` on the doc (merge write), and
+`bookmarkName()` shows `customName || contextName`. `saveBookmark` switched
+to a merge write so an auto-bookmark / re-save no longer wipes it. Main use:
+naming Spotify editorial playlists (Discover Weekly etc.) whose real name the
+Web API won't return for a dev-mode app — the playlist ID is stable so the
+name sticks.

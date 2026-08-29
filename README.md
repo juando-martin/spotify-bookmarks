@@ -139,9 +139,15 @@ Redirect URI matches the real deployed URL).
   playlist").
 - Spotify-owned **editorial / algorithmic** playlists (Discover Weekly,
   Daily Mix, Release Radar, mood mixes, …) can't be read via the Web API for
-  Development-Mode apps, so their name won't resolve — the card and bookmark
-  just say "playlist". Bookmarking and resuming still work; only the display
-  name is missing.
+  Development-Mode apps, so their name won't resolve — the bookmark shows
+  "Unknown playlist". Bookmarking and resuming still work; only the display
+  name is missing. Use the **✎ rename** button on the bookmark to give it a
+  name yourself — the playlist ID is stable (Discover Weekly keeps the same
+  URI forever, only its contents rotate), so the name you set sticks.
+- Every bookmark has a **✎ rename** control next to its name. The custom
+  name is stored per bookmark (`customName`) and shown instead of Spotify's;
+  clear the field to fall back to the Spotify name. It survives re-saves and
+  auto-bookmarks.
 - If Spotify rate-limits a request (HTTP 429), the API wrapper waits out the
   `Retry-After` delay (capped at 15s) and retries up to 3 times rather than
   hammering.

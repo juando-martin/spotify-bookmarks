@@ -1,7 +1,7 @@
 import { POLL_INTERVAL_MS } from "./config.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
 import { getCurrentUser, getPlaybackState, getContextName, getDevices, resumePlayback } from "./spotifyApi.js";
-import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, contextKey } from "./firebaseBookmarks.js";
+import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, contextKey } from "./firebaseBookmarks.js";
 
 const el = {
   loginView: document.getElementById("login-view"),
@@ -172,6 +172,11 @@ function escapeHtml(str) {
   return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+/** What to call a bookmark: the user's custom name, else Spotify's, else a placeholder. */
+function bookmarkName(bm) {
+  return bm.customName || bm.contextName || "Unnamed";
+}
+
 async function buildBookmarkFromSnapshot(snapshot) {
   const { type, id, uri, name } = snapshot.context;
   const contextName = name ?? (await getContextName(type, id));
@@ -231,7 +236,11 @@ async function refreshBookmarkList() {
       <div class="bookmark-main">
         ${art}
         <div class="bookmark-text">
-          <div class="context-name">${escapeHtml(bm.contextName)}<span class="context-type">${escapeHtml(bm.contextType)}</span></div>
+          <div class="context-name">
+            <span class="context-name-text">${escapeHtml(bookmarkName(bm))}</span>
+            <span class="context-type">${escapeHtml(bm.contextType)}</span>
+            <button class="rename-btn" title="Rename" aria-label="Rename">✎</button>
+          </div>
           <div class="track-line">${escapeHtml(bm.trackName)} — ${escapeHtml(bm.artists)}</div>
           <div class="updated"${usedDate ? ` title="${escapeHtml(usedDate.toLocaleString())}"` : ""}>${escapeHtml(detail.join(" · "))}</div>
         </div>
@@ -243,8 +252,44 @@ async function refreshBookmarkList() {
     `;
     li.querySelector(".resume-btn").addEventListener("click", () => onResume(bm));
     li.querySelector(".remove-btn").addEventListener("click", () => onRemove(bm, li));
+    li.querySelector(".rename-btn").addEventListener("click", () => startRename(bm, li));
     el.bookmarkList.appendChild(li);
   }
+}
+
+/** Swap a bookmark's name line for an inline text editor. */
+function startRename(bm, li) {
+  const row = li.querySelector(".context-name");
+  const currentName = bm.customName || bm.contextName || "";
+  row.innerHTML = `
+    <input class="rename-input" type="text" maxlength="120" value="${escapeHtml(currentName)}" />
+    <button class="rename-save">Save</button>
+    <button class="rename-cancel">Cancel</button>
+  `;
+  const input = row.querySelector(".rename-input");
+  input.focus();
+  input.select();
+
+  const cancel = () => refreshBookmarkList();
+  const save = async () => {
+    const value = input.value.trim();
+    // Store null when it's blank or just matches Spotify's own name.
+    const customName = value && value !== bm.contextName ? value : null;
+    try {
+      await renameBookmark(spotifyUserId, bm.id, customName);
+    } catch (err) {
+      console.error(err);
+      showToast("Couldn't rename that bookmark.");
+    }
+    await refreshBookmarkList();
+  };
+
+  row.querySelector(".rename-cancel").addEventListener("click", cancel);
+  row.querySelector(".rename-save").addEventListener("click", save);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") save();
+    else if (e.key === "Escape") cancel();
+  });
 }
 
 async function onResume(bookmark, deviceId) {
@@ -256,7 +301,7 @@ async function onResume(bookmark, deviceId) {
       deviceId,
     });
     hideDevicePicker();
-    showToast(`Resumed ${bookmark.contextName} at ${bookmark.trackName}`);
+    showToast(`Resumed ${bookmarkName(bookmark)} at ${bookmark.trackName}`);
     // Resuming counts as "using" the bookmark — bump it to the top of the list
     // immediately (local mark), then persist lastUsedAt.
     markUsedNow(bookmark.id);
@@ -324,7 +369,7 @@ function onRemove(bookmark, li) {
   li.remove();
   const timer = setTimeout(commitRemoval, 5000);
   pendingRemoval = { bookmark, timer };
-  showToast(`Removed “${bookmark.contextName}”`, {
+  showToast(`Removed “${bookmarkName(bookmark)}”`, {
     actionLabel: "Undo",
     ms: 5000,
     onAction: () => {
