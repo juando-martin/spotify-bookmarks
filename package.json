@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Bookmark and resume your spot in a Spotify playlist or album (static PWA).",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "bump": "node scripts/bump.mjs"
   }
 }

@@ -53,13 +53,11 @@ Seek bar under the transport controls: `durationMs` from the payload,
 `estimatedMs` advances 1×/s between polls and resyncs each poll, dragging
 calls `PUT /me/player/seek`. `normalizePlaybackState` carries `durationMs`.
 
-### 7. `npm run bump`
+### 7. `npm run bump` — DONE
 
-One script that bumps `APP_VERSION` in `js/version.js` **and** `CACHE_NAME`
-in `sw.js` together, so neither is ever forgotten on a deploy.
-
-- **Size:** tiny.
-- **Files:** new `scripts/bump.mjs`, `package.json`.
+`scripts/bump.mjs` rewrites `APP_VERSION` in `js/version.js` and
+`CACHE_NAME` in `sw.js` together. `npm run bump` = current + 1;
+`npm run bump -- N` sets it.
 
 ## Later / maybe
 

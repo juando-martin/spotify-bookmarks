@@ -268,6 +268,15 @@ the bookmark sort key):
 npm test        # == node --test  (needs Node 18+, no dependencies)
 ```
 
+Before each deploy, bump the version (keeps `APP_VERSION` in `js/version.js`
+and `CACHE_NAME` in `sw.js` in step — the update banner and cache-busting
+depend on it):
+
+```bash
+npm run bump          # current + 1
+npm run bump -- 30    # set explicitly
+```
+
 To try it locally, serve the folder over HTTP (module scripts need it) and
 register the Spotify redirect URI for that origin, e.g.
 `python3 -m http.server 8777` then visit `http://127.0.0.1:8777/`.
