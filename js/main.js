@@ -65,6 +65,14 @@ let lastContextSnapshot = null; // last snapshot seen WHILE inside a playlist/al
 let pollHandle = null;
 let pendingRemoval = null; // { bookmark, timer } — a Remove awaiting its Undo grace period
 
+// Bookmark id -> local timestamp of the last save/resume from this tab.
+// Firestore's serverTimestamp can lag a beat on read-back, so we sort (and
+// show "used just now") from this until the server value catches up.
+const locallyUsedAt = new Map();
+function markUsedNow(id) {
+  locallyUsedAt.set(id, Date.now());
+}
+
 /**
  * Show a transient toast. Pass { actionLabel, onAction } for an inline
  * button (e.g. Undo); ms controls how long it stays up.
@@ -181,12 +189,27 @@ async function buildBookmarkFromSnapshot(snapshot) {
   };
 }
 
+function serverUsedMs(bm) {
+  return bm.lastUsedAt?.toMillis?.() ?? bm.updatedAt?.toMillis?.() ?? 0;
+}
+
+/** Effective "last used" ms: the later of the server value and this tab's local mark. */
+function usedAtMs(bm) {
+  return Math.max(serverUsedMs(bm), locallyUsedAt.get(bm.id) ?? 0);
+}
+
 async function refreshBookmarkList() {
   const all = await listBookmarks(spotifyUserId);
+  // Drop local "just used" marks the server value has now caught up to.
+  for (const b of all) {
+    if ((locallyUsedAt.get(b.id) ?? 0) <= serverUsedMs(b)) locallyUsedAt.delete(b.id);
+  }
   // Hide a bookmark that's mid-Undo so a background re-render doesn't resurrect it.
   const bookmarks = pendingRemoval
     ? all.filter((b) => b.id !== pendingRemoval.bookmark.id)
     : all;
+  // Re-sort with local marks applied (listBookmarks only sees the server value).
+  bookmarks.sort((a, b) => usedAtMs(b) - usedAtMs(a));
 
   el.bookmarkList.innerHTML = "";
   el.bookmarkEmpty.hidden = bookmarks.length > 0;
@@ -195,7 +218,8 @@ async function refreshBookmarkList() {
     const li = document.createElement("li");
     li.className = "bookmark-item";
 
-    const usedDate = bm.lastUsedAt?.toDate?.() ?? bm.updatedAt?.toDate?.() ?? null;
+    const usedMs = usedAtMs(bm);
+    const usedDate = usedMs ? new Date(usedMs) : null;
     const detail = [];
     if (Number.isFinite(bm.positionMs)) detail.push(`resumes at ${formatDuration(bm.positionMs)}`);
     if (usedDate) detail.push(`used ${formatRelative(usedDate)}`);
@@ -233,10 +257,12 @@ async function onResume(bookmark, deviceId) {
     });
     hideDevicePicker();
     showToast(`Resumed ${bookmark.contextName} at ${bookmark.trackName}`);
-    // Resuming counts as "using" the bookmark — bump it to the top of the list.
+    // Resuming counts as "using" the bookmark — bump it to the top of the list
+    // immediately (local mark), then persist lastUsedAt.
+    markUsedNow(bookmark.id);
+    await refreshBookmarkList();
     try {
       await touchBookmark(spotifyUserId, bookmark.id);
-      await refreshBookmarkList();
     } catch (err) {
       console.error("Failed to bump lastUsedAt:", err);
     }
@@ -285,6 +311,7 @@ function commitRemoval() {
   const { bookmark, timer } = pendingRemoval;
   clearTimeout(timer);
   pendingRemoval = null;
+  locallyUsedAt.delete(bookmark.id);
   removeBookmark(spotifyUserId, bookmark.id).catch((err) => {
     console.error(err);
     showToast("Couldn't remove that bookmark.");
@@ -317,6 +344,7 @@ async function onManualBookmark() {
   try {
     const bookmark = await buildBookmarkFromSnapshot(currentSnapshot);
     await saveBookmark(spotifyUserId, bookmark);
+    markUsedNow(contextKey(bookmark.contextType, bookmark.contextId));
     setBookmarkStatus(`Saved: ${bookmark.trackName}`, "success");
     await refreshBookmarkList();
   } catch (err) {
@@ -348,6 +376,7 @@ async function pollOnce() {
     try {
       const bookmark = await buildBookmarkFromSnapshot(lastContextSnapshot);
       await saveBookmark(spotifyUserId, bookmark);
+      markUsedNow(previousKey);
       await refreshBookmarkList();
     } catch (err) {
       console.error("Auto-bookmark failed:", err);

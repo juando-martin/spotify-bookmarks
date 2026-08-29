@@ -8,7 +8,9 @@ files it touches.
 `escapeHtml` escapes quotes (attribute-safe); `getContextName` doesn't cache
 a failed lookup; the Now playing card shows album art + album name + playlist
 name (needed the `playlist-read-private` / `-collaborative` scopes); the
-service worker is network-first so deploys no longer need a double reload.
+service worker is network-first so deploys no longer need a double reload;
+a just-used bookmark jumps to the top of the list instantly (local mark)
+instead of waiting for the Firestore serverTimestamp to read back.
 
 ---
 
