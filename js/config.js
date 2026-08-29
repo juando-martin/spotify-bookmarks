@@ -8,7 +8,7 @@
 
 export const SPOTIFY_CONFIG = {
   // From developer.spotify.com/dashboard -> your app -> Client ID
-  clientId: "YOUR_SPOTIFY_CLIENT_ID",
+  clientId: "53c3a5a987b74363a2c18beff257a65f",
 
   // Must exactly match a Redirect URI registered on the Spotify app.
   // Once deployed to GitHub Pages this will look like:
@@ -25,12 +25,12 @@ export const SPOTIFY_CONFIG = {
 
 // From the Firebase console -> Project settings -> General -> Your apps -> SDK setup and configuration
 export const FIREBASE_CONFIG = {
-  apiKey: "YOUR_FIREBASE_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  apiKey: "AIzaSyCtjNEnrjI4fuW2FFC_TSjvU1WYliLDTUE",
+  authDomain: "spotify-bookmarks-9c71d.firebaseapp.com",
+  projectId: "spotify-bookmarks-9c71d",
+  storageBucket: "spotify-bookmarks-9c71d.firebasestorage.app",
+  messagingSenderId: "812556382600",
+  appId: "1:812556382600:web:c26b880d32987775350a3d",
 };
 
 // How often to poll Spotify's "now playing" endpoint, in milliseconds.
