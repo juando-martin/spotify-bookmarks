@@ -2,14 +2,41 @@ rules_version = '2';
 
 // Paste this into Firebase Console -> Firestore Database -> Rules, then Publish.
 //
-// Requires anonymous auth (see js/firebaseBookmarks.js) so the database
-// isn't wide open to anyone on the internet who obtains your public
-// Firebase config values. See the security note at the top of
-// js/firebaseBookmarks.js for what this does and doesn't protect against.
+// Requires anonymous auth (see js/firebaseBookmarks.js) so the database isn't
+// wide open to anyone on the internet who has your public Firebase config.
+// It does NOT isolate one allowlisted user's bookmarks from another's — see
+// the security note at the top of js/firebaseBookmarks.js. The write rules
+// below validate shape and size so an allowlisted account can't write junk
+// or run up your quota with oversized documents.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /bookmarks/{spotifyUserId}/contexts/{contextKey} {
-      allow read, write: if request.auth != null;
+
+      allow read, delete: if request.auth != null;
+
+      allow create, update: if request.auth != null
+                            && isValidBookmark(request.resource.data);
+
+      function isValidBookmark(d) {
+        return d.keys().hasOnly([
+                 'contextType', 'contextId', 'contextUri', 'contextName',
+                 'customName', 'imageUrl', 'trackId', 'trackUri', 'trackName',
+                 'artists', 'positionMs', 'updatedAt', 'lastUsedAt'
+               ])
+          && (!('contextType' in d) || d.contextType in ['playlist', 'album'])
+          && (!('contextId'   in d) || (d.contextId   is string && d.contextId.size()   <= 100))
+          && (!('trackId'     in d) || (d.trackId     is string && d.trackId.size()     <= 100))
+          && (!('contextUri'  in d) || (d.contextUri  is string && d.contextUri.size()  <= 200))
+          && (!('trackUri'    in d) || (d.trackUri    is string && d.trackUri.size()    <= 200))
+          && (!('contextName' in d) || (d.contextName is string && d.contextName.size() <= 300))
+          && (!('trackName'   in d) || (d.trackName   is string && d.trackName.size()   <= 500))
+          && (!('artists'     in d) || (d.artists     is string && d.artists.size()     <= 1000))
+          && (!('customName'  in d) || d.customName == null || (d.customName is string && d.customName.size() <= 200))
+          && (!('imageUrl'    in d) || d.imageUrl == null    || (d.imageUrl   is string && d.imageUrl.size()   <= 500))
+          && (!('positionMs'  in d) || (d.positionMs is number && d.positionMs >= 0 && d.positionMs <= 86400000))
+          && (!('updatedAt'   in d) || d.updatedAt  is timestamp)
+          && (!('lastUsedAt'  in d) || d.lastUsedAt is timestamp);
+      }
     }
   }
 }

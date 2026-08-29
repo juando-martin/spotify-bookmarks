@@ -204,7 +204,7 @@ async function buildBookmarkFromSnapshot(snapshot) {
     trackUri: snapshot.track.uri,
     trackName: snapshot.track.name,
     artists: snapshot.track.artists,
-    positionMs: snapshot.progressMs,
+    positionMs: snapshot.progressMs ?? 0, // Spotify can report null at a track boundary
   };
 }
 

@@ -43,7 +43,9 @@ import {
   signInAnonymously,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
-  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   doc,
   setDoc,
   deleteDoc,
@@ -62,7 +64,13 @@ let readyPromise = null;
 function ensureReady() {
   if (!readyPromise) {
     const app = initializeApp(FIREBASE_CONFIG);
-    db = getFirestore(app);
+    // Persistent local cache: writes queue and retry across connectivity
+    // blips (bookmarking on a flaky phone connection still lands), and reads
+    // come from IndexedDB first, then revalidate. Falls back to memory-only
+    // where IndexedDB isn't available (private windows, storage disabled).
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
     const auth = getAuth(app);
     readyPromise = signInAnonymously(auth);
   }

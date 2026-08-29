@@ -222,8 +222,20 @@ Redirect URI matches the real deployed URL).
   HTTP-cached. Deploys made **before v21** don't have this and may still
   need a manual close-and-reopen once to reach v21.
 - The Firestore security model is intentionally simple for a personal /
-  small-allowlist app — see the comment block at the top of
-  `js/firebaseBookmarks.js` before sharing this more widely.
+  small-allowlist app: any signed-in (anonymous) client can read or delete
+  any bookmark. It does **not** isolate one allowlisted user's bookmarks
+  from another's — see the comment block at the top of
+  `js/firebaseBookmarks.js`. The `create` / `update` rules do validate shape
+  and size (known fields only, string length caps, `positionMs` range) so an
+  allowlisted account can't write junk or oversized documents. **Re-paste
+  `firestore.rules` and Publish** after pulling a change to that file.
+- Firestore runs with a **persistent local cache** (IndexedDB). Bookmark
+  writes queue and retry through connectivity blips, and the list loads from
+  cache first, then revalidates. Falls back to memory-only where IndexedDB
+  isn't available.
+- Names/covers for playlists that return 404 (Spotify's editorial Mixes) are
+  negative-cached for the session, so the app doesn't re-request them on
+  every poll.
 
 ## File layout
 

@@ -5,6 +5,9 @@ import { normalizePlaybackState, smallestImageUrl } from "./format.js";
 
 const API_BASE = "https://api.spotify.com/v1";
 const contextMetaCache = new Map();
+// Contexts that returned 404 this session (editorial playlists a dev-mode
+// app can't read) — don't re-ask them on every poll tick.
+const unreadableContexts = new Set();
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -69,10 +72,17 @@ export async function getContextMeta(type, id) {
   if (contextMetaCache.has(cacheKey)) {
     return contextMetaCache.get(cacheKey);
   }
+  if (unreadableContexts.has(cacheKey)) {
+    return { name: null, imageUrl: null };
+  }
   const path =
     type === "playlist" ? `/playlists/${id}?fields=name,images` : `/albums/${id}`;
   const res = await apiFetch(path);
-  if (!res.ok) return { name: null, imageUrl: null }; // don't cache — could be transient
+  if (res.status === 404) {
+    unreadableContexts.add(cacheKey); // persistent — stop asking this session
+    return { name: null, imageUrl: null };
+  }
+  if (!res.ok) return { name: null, imageUrl: null }; // transient — retry next time
   const data = await res.json();
   const meta = { name: data.name || null, imageUrl: smallestImageUrl(data.images) };
   if (meta.name || meta.imageUrl) contextMetaCache.set(cacheKey, meta);
