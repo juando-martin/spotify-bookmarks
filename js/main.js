@@ -1,6 +1,6 @@
 import { POLL_INTERVAL_MS } from "./config.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
-import { getCurrentUser, getPlaybackState, getContextName, getDevices, resumePlayback } from "./spotifyApi.js";
+import { getCurrentUser, getPlaybackState, getContextName, getDevices, resumePlayback, playbackControl } from "./spotifyApi.js";
 import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, contextKey } from "./firebaseBookmarks.js";
 
 const el = {
@@ -10,6 +10,12 @@ const el = {
   logoutBtn: document.getElementById("logout-btn"),
   userGreeting: document.getElementById("user-greeting"),
   nowPlaying: document.getElementById("now-playing"),
+  transport: document.getElementById("transport"),
+  prevBtn: document.getElementById("prev-btn"),
+  nextBtn: document.getElementById("next-btn"),
+  playPauseBtn: document.getElementById("playpause-btn"),
+  iconPlay: document.querySelector("#playpause-btn .icon-play"),
+  iconPause: document.querySelector("#playpause-btn .icon-pause"),
   bookmarkBtn: document.getElementById("bookmark-btn"),
   bookmarkStatus: document.getElementById("bookmark-status"),
   bookmarkList: document.getElementById("bookmark-list"),
@@ -129,7 +135,17 @@ function setBookmarkStatus(message, kind) {
   el.bookmarkStatus.className = "status" + (kind ? ` ${kind}` : "");
 }
 
+function renderTransport() {
+  const playing = !!currentSnapshot?.isPlaying;
+  el.transport.hidden = !currentSnapshot;
+  el.iconPlay.hidden = playing;
+  el.iconPause.hidden = !playing;
+  el.playPauseBtn.setAttribute("aria-label", playing ? "Pause" : "Play");
+}
+
 function renderNowPlaying() {
+  renderTransport();
+
   if (!currentSnapshot) {
     el.nowPlaying.textContent = "Nothing playing right now.";
     el.bookmarkBtn.disabled = true;
@@ -290,6 +306,27 @@ function startRename(bm, li) {
     if (e.key === "Enter") save();
     else if (e.key === "Escape") cancel();
   });
+}
+
+async function onTransport(action) {
+  // Optimistic play/pause flip so the button feels instant.
+  if ((action === "play" || action === "pause") && currentSnapshot) {
+    currentSnapshot.isPlaying = action === "play";
+    renderTransport();
+  }
+  try {
+    await playbackControl(action);
+  } catch (err) {
+    console.error(err);
+    showToast(/\b404\b/.test(err.message)
+      ? "No active device — open Spotify somewhere first."
+      : "Playback control failed.");
+  }
+  setTimeout(pollOnce, 1000); // reconcile with Spotify's real state
+}
+
+function onPlayPause() {
+  onTransport(currentSnapshot?.isPlaying ? "pause" : "play");
 }
 
 async function onResume(bookmark, deviceId) {
@@ -519,6 +556,9 @@ async function init() {
   });
   el.bookmarkBtn.addEventListener("click", onManualBookmark);
   el.deviceCancel.addEventListener("click", hideDevicePicker);
+  el.prevBtn.addEventListener("click", () => onTransport("previous"));
+  el.nextBtn.addEventListener("click", () => onTransport("next"));
+  el.playPauseBtn.addEventListener("click", onPlayPause);
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
   // Strip the one-shot shortcut param so a manual reload doesn't re-fire it.

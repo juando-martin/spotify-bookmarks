@@ -30,6 +30,18 @@
       <section id="now-playing-card" class="card">
         <h2>Now playing</h2>
         <div id="now-playing">Checking Spotify…</div>
+        <div id="transport" class="transport" hidden>
+          <button id="prev-btn" class="transport-btn" aria-label="Previous track">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6v12H5V6h2zm2 6l10 6V6L9 12z"/></svg>
+          </button>
+          <button id="playpause-btn" class="transport-btn transport-main" aria-label="Play or pause">
+            <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>
+          </button>
+          <button id="next-btn" class="transport-btn" aria-label="Next track">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 6v12h2V6h-2zm-2 6L5 6v12l10-6z"/></svg>
+          </button>
+        </div>
         <button id="bookmark-btn" class="primary" disabled>Bookmark this spot</button>
         <p id="bookmark-status" class="status"></p>
       </section>

@@ -177,6 +177,14 @@ comparator. Extract them if needed and add a small test file (e.g. `node
 
 ---
 
+## Extra: transport controls — DONE
+
+Now playing card has ⏮ / ⏯ / ⏭ buttons (Spotify-app layout, big round
+play/pause in the middle). `playbackControl(action)` hits
+`/me/player/{next|previous|pause|play}`; play/pause flips optimistically and
+`pollOnce` reconciles ~1s later. Shown only when `currentSnapshot` exists;
+same no-active-device caveat as Resume (toasts instead of the device picker).
+
 ## Extra: rename bookmarks — DONE
 
 Not in the original list. Each bookmark has a ✎ button that inline-edits its

@@ -148,3 +148,16 @@ export async function resumePlayback({ contextUri, trackUri, positionMs, deviceI
     throw new Error(`Failed to resume playback: ${res.status} ${text}`);
   }
 }
+
+/**
+ * Transport controls for whatever is currently playing. action is one of
+ * "next", "previous", "pause", "play" (play resumes the current track).
+ */
+export async function playbackControl(action) {
+  const method = action === "next" || action === "previous" ? "POST" : "PUT";
+  const res = await apiFetch(`/me/player/${action}`, { method });
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Playback ${action} failed: ${res.status} ${text}`);
+  }
+}

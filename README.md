@@ -113,6 +113,10 @@ Redirect URI matches the real deployed URL).
 - Each bookmark shows the saved position ("resumes at 2:34") and when it was
   last used as a relative time ("used 3 hours ago"; hover/long-press for the
   exact timestamp).
+- The Now playing card has **⏮ / ⏯ / ⏭** transport buttons (shown only when
+  something's on a device). They control whatever device is active — same
+  "needs an active device" caveat as Resume. Play/pause flips optimistically
+  and reconciles on the next poll.
 - **Remove** deletes after a 5-second grace period with an **Undo** in the
   toast; the delete only actually hits Firestore once that window passes.
 - Only **playlist** and **album** contexts can be bookmarked. Spotify also
@@ -185,7 +189,7 @@ firestore.rules           Firestore security rules to paste into the Firebase co
 js/config.js              YOUR Spotify + Firebase config (fill in per steps above)
 js/pkce.js                PKCE code_verifier/code_challenge helpers
 js/auth.js                Spotify OAuth login/redirect/token refresh (shared single-flight)
-js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, playlist name; 429 backoff)
+js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, transport, playlist name; 429 backoff)
 js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist/album per user)
 js/main.js                Wires it all together: UI, polling loop, auto-bookmark
 icons/                    App icons for the PWA manifest

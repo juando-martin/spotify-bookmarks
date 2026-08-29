@@ -131,6 +131,56 @@ button.link {
   font-size: 0.9rem;
 }
 
+.transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  margin: 0.25rem 0 1rem;
+}
+
+.transport-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  color: var(--text);
+  width: 44px;
+  height: 44px;
+}
+
+.transport-btn svg {
+  width: 26px;
+  height: 26px;
+  fill: currentColor;
+}
+
+.transport-btn:active {
+  color: var(--muted);
+}
+
+.transport-main {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  background: var(--text);
+  color: #121212;
+}
+
+.transport-main svg {
+  width: 28px;
+  height: 28px;
+}
+
+.transport-main .icon-play {
+  margin-left: 3px; /* optically center the triangle */
+}
+
+.transport-btn svg[hidden] {
+  display: none;
+}
+
 .setting {
   display: flex;
   align-items: center;
