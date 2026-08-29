@@ -9,7 +9,7 @@ import {
   spotifyWebUrl,
 } from "./format.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
-import { getCurrentUser, getPlaybackState, getContextMeta, getDevices, resumePlayback, playbackControl } from "./spotifyApi.js";
+import { getCurrentUser, getPlaybackState, getContextMeta, getDevices, resumePlayback, playbackControl, seek } from "./spotifyApi.js";
 import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, contextKey } from "./firebaseBookmarks.js";
 
 const el = {
@@ -25,6 +25,10 @@ const el = {
   playPauseBtn: document.getElementById("playpause-btn"),
   iconPlay: document.querySelector("#playpause-btn .icon-play"),
   iconPause: document.querySelector("#playpause-btn .icon-pause"),
+  seekRow: document.getElementById("seek-row"),
+  seek: document.getElementById("seek"),
+  seekElapsed: document.getElementById("seek-elapsed"),
+  seekTotal: document.getElementById("seek-total"),
   bookmarkBtn: document.getElementById("bookmark-btn"),
   bookmarkStatus: document.getElementById("bookmark-status"),
   bookmarkList: document.getElementById("bookmark-list"),
@@ -125,6 +129,12 @@ function setBookmarkStatus(message, kind) {
   el.bookmarkStatus.className = "status" + (kind ? ` ${kind}` : "");
 }
 
+// Progress bar: `estimatedMs` advances once a second between polls so the bar
+// moves smoothly, and resyncs to the real value on every poll.
+let estimatedMs = 0;
+let seekDragging = false;
+let progressTicker = null;
+
 function renderTransport() {
   if (!el.transport) return; // stale cached HTML without the transport markup
   const playing = !!currentSnapshot?.isPlaying;
@@ -133,6 +143,40 @@ function renderTransport() {
   el.iconPlay.toggleAttribute("hidden", playing);
   el.iconPause.toggleAttribute("hidden", !playing);
   el.playPauseBtn.setAttribute("aria-label", playing ? "Pause" : "Play");
+  renderProgress();
+}
+
+function renderProgress() {
+  if (!el.seekRow) return;
+  const dur = currentSnapshot?.track?.durationMs || 0;
+  el.seekRow.hidden = !currentSnapshot || !dur;
+  if (el.seekRow.hidden) return;
+
+  el.seek.max = String(dur);
+  el.seekTotal.textContent = formatDuration(dur);
+  if (seekDragging) return; // don't fight the user
+
+  const at = Math.min(Math.max(estimatedMs, 0), dur);
+  el.seek.value = String(at);
+  el.seekElapsed.textContent = formatDuration(at);
+  const pct = dur ? (at / dur) * 100 : 0;
+  el.seek.style.background =
+    `linear-gradient(to right, var(--accent) ${pct}%, #3a3a3a ${pct}%)`;
+}
+
+function startProgressTicker() {
+  if (progressTicker) return;
+  progressTicker = setInterval(() => {
+    if (currentSnapshot?.isPlaying && !seekDragging) {
+      estimatedMs += 1000;
+      renderProgress();
+    }
+  }, 1000);
+}
+
+function stopProgressTicker() {
+  clearInterval(progressTicker);
+  progressTicker = null;
 }
 
 function renderNowPlaying() {
@@ -495,6 +539,7 @@ async function runPoll() {
 
   currentSnapshot = snapshot;
   lastContextSnapshot = snapshot?.context ? snapshot : null;
+  if (!seekDragging) estimatedMs = snapshot?.progressMs ?? 0; // resync the progress bar
 
   // Resolve the Spotify name for the Now playing card (albums already carry
   // it; playlists need one API lookup, cached in memory). renderNowPlaying
@@ -587,6 +632,7 @@ async function enterApp() {
 
   await refreshBookmarkList();
   startPolling();
+  startProgressTicker();
 
   if (shortcutAction === "resume-last") await resumeLastBookmark();
 }
@@ -607,6 +653,7 @@ async function resumeLastBookmark() {
 
 function enterLoggedOut() {
   stopPolling();
+  stopProgressTicker();
   commitRemoval();
   hideDevicePicker();
   el.loginView.hidden = false;
@@ -641,6 +688,27 @@ async function init() {
   el.prevBtn.addEventListener("click", () => onTransport("previous"));
   el.nextBtn.addEventListener("click", () => onTransport("next"));
   el.playPauseBtn.addEventListener("click", onPlayPause);
+
+  el.seek.addEventListener("input", () => {
+    seekDragging = true;
+    const ms = Number(el.seek.value);
+    el.seekElapsed.textContent = formatDuration(ms);
+    const dur = currentSnapshot?.track?.durationMs || 1;
+    el.seek.style.background =
+      `linear-gradient(to right, var(--accent) ${(ms / dur) * 100}%, #3a3a3a ${(ms / dur) * 100}%)`;
+  });
+  el.seek.addEventListener("change", async () => {
+    const ms = Number(el.seek.value);
+    estimatedMs = ms;
+    seekDragging = false;
+    try {
+      await seek(ms);
+    } catch (err) {
+      console.error(err);
+      showToast(/\b404\b/.test(err.message) ? "No active device to seek." : "Couldn't seek.");
+    }
+    setTimeout(pollOnce, 800);
+  });
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
   // Strip the one-shot shortcut param so a manual reload doesn't re-fire it.

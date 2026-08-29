@@ -42,6 +42,11 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 6v12h2V6h-2zm-2 6L5 6v12l10-6z"/></svg>
           </button>
         </div>
+        <div id="seek-row" class="seek-row" hidden>
+          <span id="seek-elapsed" class="seek-time">0:00</span>
+          <input id="seek" class="seek" type="range" min="0" max="0" value="0" step="1000" aria-label="Seek within track" />
+          <span id="seek-total" class="seek-time">0:00</span>
+        </div>
         <button id="bookmark-btn" class="primary" disabled>Bookmark this spot</button>
         <p id="bookmark-status" class="status"></p>
       </section>

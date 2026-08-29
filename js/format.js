@@ -101,6 +101,7 @@ export function normalizePlaybackState(data) {
       name: data.item.name,
       artists: (data.item.artists || []).map((a) => a.name).join(", "),
       albumName: album.name ?? null,
+      durationMs: data.item.duration_ms ?? null,
       // Art rides along in this payload (album.images for tracks,
       // item.images for podcast episodes), so thumbnails cost no extra call.
       imageUrl: smallestImageUrl(album.images || data.item.images),

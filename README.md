@@ -141,10 +141,11 @@ Redirect URI matches the real deployed URL).
 - Each bookmark shows the saved position ("resumes at 2:34") and when it was
   last used as a relative time ("used 3 hours ago"; hover/long-press for the
   exact timestamp).
-- The Now playing card has **⏮ / ⏯ / ⏭** transport buttons (shown only when
-  something's on a device). They control whatever device is active — same
-  "needs an active device" caveat as Resume. Play/pause flips optimistically
-  and reconciles on the next poll.
+- The Now playing card has **⏮ / ⏯ / ⏭** transport buttons and a **seek
+  bar** (shown only when something's on a device). They control whatever
+  device is active — same "needs an active device" caveat as Resume.
+  Play/pause flips optimistically; the seek bar advances once a second
+  between polls and resyncs on each poll; dragging it seeks the device.
 - **Remove** deletes after a 5-second grace period with an **Undo** in the
   toast; the delete only actually hits Firestore once that window passes.
 - Only **playlist** and **album** contexts can be bookmarked. Spotify also

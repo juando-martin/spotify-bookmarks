@@ -134,3 +134,13 @@ export async function playbackControl(action) {
     throw new Error(`Playback ${action} failed: ${res.status} ${text}`);
   }
 }
+
+/** Seek within the current track. */
+export async function seek(positionMs) {
+  const ms = Math.max(0, Math.round(positionMs));
+  const res = await apiFetch(`/me/player/seek?position_ms=${ms}`, { method: "PUT" });
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Seek failed: ${res.status} ${text}`);
+  }
+}

@@ -47,16 +47,11 @@ the known fields, cap string lengths, sanity-check `positionMs`. No backend
 - **Size:** small (rules only; re-paste + Publish in the Firebase console).
 - **Files:** `firestore.rules`.
 
-### 4. Now playing progress bar
+### 4. Now playing progress bar — DONE
 
-`progress_ms` + `item.duration_ms` are already in the payload — show
-elapsed / total with a bar under the transport controls. Optionally make it
-a **seek bar** (`PUT /me/player/seek?position_ms=`).
-
-- **Size:** medium.
-- **Files:** `js/spotifyApi.js` (carry `durationMs`, add `seek`),
-  `js/format.js` (`normalizePlaybackState`), `js/main.js`, `style.css`,
-  `index.html`.
+Seek bar under the transport controls: `durationMs` from the payload,
+`estimatedMs` advances 1×/s between polls and resyncs each poll, dragging
+calls `PUT /me/player/seek`. `normalizePlaybackState` carries `durationMs`.
 
 ### 7. `npm run bump`
 

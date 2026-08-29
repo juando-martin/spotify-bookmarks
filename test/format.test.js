@@ -109,6 +109,7 @@ const trackItem = {
   id: "t1",
   uri: "spotify:track:t1",
   name: "Bird on the Wire",
+  duration_ms: 198_000,
   artists: [{ name: "Leonard Cohen" }],
   album: { name: "Songs from a Room", images: [{ url: "art64", width: 64 }, { url: "art640", width: 640 }] },
 };
@@ -135,10 +136,21 @@ test("normalizePlaybackState maps a track playing inside a playlist", () => {
       name: "Bird on the Wire",
       artists: "Leonard Cohen",
       albumName: "Songs from a Room",
+      durationMs: 198_000,
       imageUrl: "art64",
     },
     context: { type: "playlist", id: "PL123", uri: "spotify:playlist:PL123", name: null },
   });
+});
+
+test("normalizePlaybackState carries track duration, null when absent", () => {
+  const withDur = normalizePlaybackState({ is_playing: true, progress_ms: 0, item: trackItem, context: null });
+  assert.equal(withDur.track.durationMs, 198_000);
+  const noDur = normalizePlaybackState({
+    is_playing: true, progress_ms: 0, context: null,
+    item: { id: "x", uri: "spotify:track:x", name: "n", artists: [] },
+  });
+  assert.equal(noDur.track.durationMs, null);
 });
 
 test("normalizePlaybackState carries the album name into an album context", () => {
