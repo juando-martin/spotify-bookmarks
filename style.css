@@ -139,6 +139,11 @@ button.link {
   margin: 0.25rem 0 1rem;
 }
 
+/* Author `display: flex` above would otherwise beat the UA [hidden] rule. */
+.transport[hidden] {
+  display: none;
+}
+
 .transport-btn {
   display: flex;
   align-items: center;
@@ -388,6 +393,14 @@ button.link {
   font-size: 0.9rem;
   max-width: calc(100% - 2rem);
   text-align: center;
+}
+
+#app-footer {
+  text-align: center;
+  padding: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  opacity: 0.6;
 }
 
 .toast-action {

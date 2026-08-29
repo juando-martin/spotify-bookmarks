@@ -174,6 +174,11 @@ Redirect URI matches the real deployed URL).
   home-screen icon on Android, right-click the taskbar icon on desktop) that
   opens the app and immediately resumes your most-recently-used bookmark —
   it just loads `./?action=resume-last`.
+- The footer shows the running version (`v14`, …) and it's also logged to
+  the console on load. If it doesn't match `APP_VERSION` in `js/version.js`
+  on `main`, the browser is serving a stale cache — hard-refresh, or on an
+  installed PWA close it fully and reopen. Bump `APP_VERSION` **and**
+  `CACHE_NAME` in `sw.js` together on every deploy.
 - The Firestore security model is intentionally simple for a personal /
   small-allowlist app — see the comment block at the top of
   `js/firebaseBookmarks.js` before sharing this more widely.
@@ -191,6 +196,7 @@ js/pkce.js                PKCE code_verifier/code_challenge helpers
 js/auth.js                Spotify OAuth login/redirect/token refresh (shared single-flight)
 js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, transport, playlist name; 429 backoff)
 js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist/album per user)
+js/version.js             APP_VERSION string — bump with sw.js CACHE_NAME each deploy
 js/main.js                Wires it all together: UI, polling loop, auto-bookmark
 icons/                    App icons for the PWA manifest
 ```

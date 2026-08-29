@@ -6,7 +6,9 @@
 // shell while online — that just meant "reload twice after every deploy".
 // The cache exists purely so the PWA still opens (offline shell) with no
 // connection. Spotify API / Firebase / gstatic requests are never touched.
-const CACHE_NAME = "playlist-resume-shell-v13";
+//
+// Keep the version number here in step with APP_VERSION in js/version.js.
+const CACHE_NAME = "playlist-resume-shell-v14";
 
 const SHELL_FILES = [
   "./",
@@ -14,6 +16,7 @@ const SHELL_FILES = [
   "./style.css",
   "./manifest.json",
   "./js/config.js",
+  "./js/version.js",
   "./js/pkce.js",
   "./js/auth.js",
   "./js/spotifyApi.js",

@@ -83,10 +83,9 @@ export async function getPlaybackState() {
       name: data.item.name,
       artists: (data.item.artists || []).map((a) => a.name).join(", "),
       albumName: album.name ?? null,
-      // The current track's album art — always in this payload, so bookmark
-      // thumbnails cost no extra request. For an album context it's the
-      // album cover; for a playlist it's the bookmarked track's cover.
-      imageUrl: smallestImageUrl(album.images),
+      // Art rides along in this payload (album.images for tracks,
+      // item.images for podcast episodes), so thumbnails cost no extra call.
+      imageUrl: smallestImageUrl(album.images || data.item.images),
     },
     context: isResumable
       ? {

@@ -1,4 +1,5 @@
 import { POLL_INTERVAL_MS } from "./config.js";
+import { APP_VERSION } from "./version.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
 import { getCurrentUser, getPlaybackState, getContextName, getDevices, resumePlayback, playbackControl } from "./spotifyApi.js";
 import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, contextKey } from "./firebaseBookmarks.js";
@@ -136,6 +137,7 @@ function setBookmarkStatus(message, kind) {
 }
 
 function renderTransport() {
+  if (!el.transport) return; // stale cached HTML without the transport markup
   const playing = !!currentSnapshot?.isPlaying;
   el.transport.hidden = !currentSnapshot;
   el.iconPlay.hidden = playing;
@@ -543,6 +545,10 @@ function enterLoggedOut() {
 }
 
 async function init() {
+  const versionEl = document.getElementById("app-version");
+  if (versionEl) versionEl.textContent = `v${APP_VERSION}`;
+  console.info(`Playlist Resume v${APP_VERSION}`);
+
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch((err) => console.error("SW registration failed:", err));
   }
