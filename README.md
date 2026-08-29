@@ -334,3 +334,7 @@ Notes:
 - The only thing a real backend (e.g. a Firebase scheduled Cloud Function
   holding your refresh token) would add over this is not needing a physical
   device that stays powered on. The polling and latency are identical.
+
+---
+
+Copyright (c) 2026 Juan D. Martin.

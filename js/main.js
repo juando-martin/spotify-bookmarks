@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Juan D. Martin
 import { POLL_INTERVAL_MS } from "./config.js";
 import { APP_VERSION } from "./version.js";
 import {
@@ -696,10 +697,12 @@ function enterLoggedOut() {
   el.appView.hidden = true;
 }
 
+const COPYRIGHT = "© 2026 Juan D. Martin";
+
 async function init() {
   const versionEl = document.getElementById("app-version");
-  if (versionEl) versionEl.textContent = `v${APP_VERSION}`;
-  console.info(`Playlist Resume v${APP_VERSION}`);
+  if (versionEl) versionEl.textContent = `${COPYRIGHT} · v${APP_VERSION}`;
+  console.info(`Playlist Resume v${APP_VERSION} — ${COPYRIGHT}`);
 
   el.updateReload.addEventListener("click", applyUpdate);
   checkForUpdate();

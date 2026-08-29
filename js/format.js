@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Juan D. Martin
 // Pure helpers — no DOM, no network, no module-load side effects — so they
 // can be unit-tested in Node (see test/format.test.js) and reused across
 // the app. Anything here must stay a pure function of its arguments.

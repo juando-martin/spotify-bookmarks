@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Juan D. Martin
 // PKCE (Proof Key for Code Exchange) helpers for Spotify's Authorization
 // Code flow without a client secret — the right flow for a static,
 // backend-less single-page app like this one.

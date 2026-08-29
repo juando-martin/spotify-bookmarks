@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Juan D. Martin
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

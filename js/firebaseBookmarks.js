@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Juan D. Martin
 // Firestore-backed bookmark storage.
 //
 // Data model: bookmarks/{spotifyUserId}/contexts/{contextKey}

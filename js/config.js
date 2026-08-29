@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Juan D. Martin
 // ---------------------------------------------------------------------------
 // Fill these in after you complete the Spotify Developer Dashboard and
 // Firebase setup steps in README.md. Nothing here is a true secret (this is

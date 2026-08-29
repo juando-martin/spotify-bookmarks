@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Juan D. Martin
 // Thin wrapper around the Spotify Web API endpoints this app needs.
 
 import { getAccessToken } from "./auth.js";

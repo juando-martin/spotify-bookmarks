@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Juan D. Martin
 // Spotify OAuth (Authorization Code + PKCE) — login, token exchange,
 // refresh, and storage. The app never sees the user's Spotify password.
 

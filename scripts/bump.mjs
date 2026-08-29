@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Copyright (c) 2026 Juan D. Martin
 // Bump the deploy version in the two places that must always agree:
 //   js/version.js  -> APP_VERSION
 //   sw.js          -> CACHE_NAME ("playlist-resume-shell-vN")

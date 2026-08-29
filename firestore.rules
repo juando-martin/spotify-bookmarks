@@ -1,5 +1,7 @@
 rules_version = '2';
 
+// Copyright (c) 2026 Juan D. Martin
+//
 // Paste this into Firebase Console -> Firestore Database -> Rules, then Publish.
 //
 // Requires anonymous auth (see js/firebaseBookmarks.js) so the database isn't

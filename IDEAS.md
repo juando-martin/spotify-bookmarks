@@ -1,5 +1,7 @@
 # Improvement ideas
 
+<!-- Copyright (c) 2026 Juan D. Martin -->
+
 Loose backlog — not tracked anywhere, pick items off as we feel like it.
 
 ## Done

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Juan D. Martin
 // Minimal service worker for the app shell.
 //
 // Strategy: network-first for same-origin GETs, cache only as an offline
@@ -12,7 +13,7 @@
 // hard `reload`. Spotify API / Firebase / gstatic requests are never touched.
 //
 // Keep the version number here in step with APP_VERSION in js/version.js.
-const CACHE_NAME = "playlist-resume-shell-v24";
+const CACHE_NAME = "playlist-resume-shell-v25";
 
 const SHELL_FILES = [
   "./",
