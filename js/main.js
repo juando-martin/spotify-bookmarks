@@ -387,7 +387,11 @@ async function toggleTracks(bm) {
     } catch (err) {
       console.error("Track list failed:", err);
     }
-    expandedTracks.set(bm.id, tracks); // Track[] | null
+    if (tracks === null) {
+      expandedTracks.delete(bm.id); // transient error — allow a retry
+    } else {
+      expandedTracks.set(bm.id, tracks); // Track[] | { forbidden: true }
+    }
   }
   if (expandedId === bm.id) renderBookmarks();
 }
@@ -398,9 +402,13 @@ function renderTracksInto(container, bm) {
     container.textContent = "Loading tracks…";
     return;
   }
-  if (!state) {
+  if (state === null || state === undefined) {
+    container.textContent = "Couldn't load the tracks — try again in a moment.";
+    return;
+  }
+  if (state.forbidden) {
     container.textContent =
-      "Couldn't load this playlist — Spotify won't share editorial playlists with this app.";
+      "Spotify won't share this playlist's tracks with the app (editorial / algorithmic playlists).";
     return;
   }
   if (!state.length) {

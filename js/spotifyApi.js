@@ -124,23 +124,27 @@ export async function searchContexts(query) {
 }
 
 /**
- * The tracks of a playlist or album, as `{ uri, name, artists }`. Returns
- * null when the list can't be read (an editorial playlist a dev-mode app
- * isn't allowed to fetch, or a transient error); `[]` when it's genuinely
- * empty. Capped at the first 100 (playlist) / 50 (album).
+ * The tracks of a playlist or album, as `{ uri, name, artists }`. Capped at
+ * the first 100 (playlist) / 50 (album). Returns:
+ *   Track[]              on success (possibly empty)
+ *   { forbidden: true }  on 404 — an editorial playlist this app can't read
+ *   null                 on any other error (transient — worth retrying)
  */
 export async function getContextTracks(type, id) {
   const path =
     type === "playlist"
-      ? `/playlists/${id}/tracks?limit=100&fields=items(track(uri,name,artists(name)))`
+      ? `/playlists/${id}/tracks?limit=100`
       : `/albums/${id}/tracks?limit=50`;
   const res = await apiFetch(path);
-  if (!res.ok) return null;
+  if (!res.ok) {
+    console.error(`getContextTracks(${type}, ${id}) -> ${res.status}`);
+    return res.status === 404 ? { forbidden: true } : null;
+  }
   const data = await res.json();
   const raw =
     type === "playlist" ? (data.items || []).map((i) => i && i.track) : data.items || [];
   return raw
-    .filter((t) => t && t.uri)
+    .filter((t) => t && t.uri && !t.uri.startsWith("spotify:local:"))
     .map((t) => ({
       uri: t.uri,
       name: t.name || "",
