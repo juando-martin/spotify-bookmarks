@@ -75,14 +75,19 @@ function renderNowPlaying() {
   }
 
   const { track, context, isPlaying } = currentSnapshot;
-  let contextLabel;
-  if (!context) {
-    contextLabel = "Not in a playlist or album context";
-  } else if (context.name) {
-    contextLabel = `In ${context.type} · ${context.name}`;
-  } else {
-    contextLabel = `In ${context.type}`;
+
+  const metaLines = [
+    escapeHtml(`${track.artists}${isPlaying ? "" : " (paused)"}`),
+  ];
+  if (track.albumName) {
+    metaLines.push(`Album · ${escapeHtml(track.albumName)}`);
   }
+  if (!context) {
+    metaLines.push("Not in a playlist or album context");
+  } else if (context.type === "playlist") {
+    metaLines.push(context.name ? `Playlist · ${escapeHtml(context.name)}` : "In a playlist");
+  }
+  // An album context adds nothing — the "Album ·" line above already names it.
 
   const art = track.imageUrl
     ? `<img class="np-art" src="${escapeHtml(track.imageUrl)}" alt="" width="64" height="64" />`
@@ -92,8 +97,7 @@ function renderNowPlaying() {
     ${art}
     <div class="np-text">
       <span class="track-name">${escapeHtml(track.name)}</span>
-      <span class="track-meta">${escapeHtml(track.artists)}${isPlaying ? "" : " (paused)"}</span>
-      <span class="track-meta">${escapeHtml(contextLabel)}</span>
+      ${metaLines.map((line) => `<span class="track-meta">${line}</span>`).join("")}
     </div>
   `;
   el.bookmarkBtn.disabled = !context;

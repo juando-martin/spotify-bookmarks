@@ -15,11 +15,18 @@ export const SPOTIFY_CONFIG = {
   //   https://<your-username>.github.io/spotify-bookmarks/
   redirectUri: window.location.origin + window.location.pathname,
 
-  // Scopes needed to read playback state and start/resume playback.
+  // Scopes: read playback state, start/resume playback, and read the names
+  // of your own private / collaborative playlists (public ones need no
+  // scope, but Spotify returns 404 — not 403 — for private ones without it,
+  // which is why the playlist name would otherwise come back blank).
+  // Changing this list means existing logins must log out and back in to
+  // re-consent.
   scopes: [
     "user-read-playback-state",
     "user-read-currently-playing",
     "user-modify-playback-state",
+    "playlist-read-private",
+    "playlist-read-collaborative",
   ].join(" "),
 };
 

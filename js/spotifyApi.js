@@ -82,6 +82,7 @@ export async function getPlaybackState() {
       uri: data.item.uri,
       name: data.item.name,
       artists: (data.item.artists || []).map((a) => a.name).join(", "),
+      albumName: album.name ?? null,
       // The current track's album art — always in this payload, so bookmark
       // thumbnails cost no extra request. For an album context it's the
       // album cover; for a playlist it's the bookmarked track's cover.

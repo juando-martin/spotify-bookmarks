@@ -126,6 +126,16 @@ Redirect URI matches the real deployed URL).
   in the playback payload, so it costs no extra API call). Bookmarks saved
   before this feature have no stored image and show a blank tile until
   re-saved.
+- Reading a **private or collaborative** playlist's name needs the
+  `playlist-read-private` / `playlist-read-collaborative` scopes (in
+  `js/config.js`). If you added these to an existing install, **log out and
+  back in** once to re-consent, or playlist names stay blank ("In a
+  playlist").
+- Spotify-owned **editorial / algorithmic** playlists (Discover Weekly,
+  Daily Mix, Release Radar, mood mixes, …) can't be read via the Web API for
+  Development-Mode apps, so their name won't resolve — the card and bookmark
+  just say "playlist". Bookmarking and resuming still work; only the display
+  name is missing.
 - If Spotify rate-limits a request (HTTP 429), the API wrapper waits out the
   `Retry-After` delay (capped at 15s) and retries up to 3 times rather than
   hammering.
@@ -153,7 +163,7 @@ Redirect URI matches the real deployed URL).
 index.html              Single-page UI
 style.css                Styling
 manifest.json            PWA manifest (Android "Add to Home Screen")
-sw.js                     Service worker — caches the app shell for install/offline shell
+sw.js                     Service worker — network-first shell cache (offline fallback only)
 firestore.rules           Firestore security rules to paste into the Firebase console
 js/config.js              YOUR Spotify + Firebase config (fill in per steps above)
 js/pkce.js                PKCE code_verifier/code_challenge helpers

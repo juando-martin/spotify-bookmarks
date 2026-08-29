@@ -1,10 +1,12 @@
-// Minimal service worker: caches the static app shell so the PWA installs
-// cleanly and opens instantly. It deliberately does NOT cache Spotify API,
-// Firebase, or CDN requests — those always need the network to be useful.
+// Minimal service worker for the app shell.
 //
-// Bump CACHE_NAME whenever you change any shell file and redeploy, so
-// installed devices pick up the update instead of serving a stale cache.
-const CACHE_NAME = "playlist-resume-shell-v7";
+// Strategy: network-first for same-origin GETs, falling back to the cache
+// only when offline. This app is useless without the network anyway (it
+// talks to Spotify + Firebase), so there's no reason to ever serve a stale
+// shell while online — that just meant "reload twice after every deploy".
+// The cache exists purely so the PWA still opens (offline shell) with no
+// connection. Spotify API / Firebase / gstatic requests are never touched.
+const CACHE_NAME = "playlist-resume-shell-v8";
 
 const SHELL_FILES = [
   "./",
@@ -47,17 +49,15 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(event.request)
+      .then((response) => {
+        // Refresh the cached copy on every successful fetch.
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request)) // offline — fall back to cache
   );
 });
