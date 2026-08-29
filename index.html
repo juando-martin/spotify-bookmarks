@@ -35,6 +35,25 @@
       </section>
 
       <section class="card">
+        <h2>Settings</h2>
+        <label class="setting">
+          <input type="checkbox" id="auto-bookmark-toggle" />
+          <span>Auto-bookmark when I switch playlist or album</span>
+        </label>
+        <label class="setting">
+          <span>Check Spotify every</span>
+          <select id="poll-interval-select">
+            <option value="3000">3 seconds</option>
+            <option value="5000">5 seconds</option>
+            <option value="10000">10 seconds</option>
+            <option value="20000">20 seconds</option>
+            <option value="30000">30 seconds</option>
+            <option value="60000">60 seconds</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="card">
         <h2>Your bookmarks</h2>
         <ul id="bookmark-list"></ul>
         <p id="bookmark-empty" hidden>No bookmarks yet — play a playlist or album and tap "Bookmark this spot", or just switch away from one and it'll save automatically.</p>

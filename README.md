@@ -119,10 +119,15 @@ Redirect URI matches the real deployed URL).
   album overwrites its previous bookmark in place. A playlist and an album
   are always separate bookmarks even in the unlikely event their IDs match
   (the stored key is prefixed with the type).
-- Auto-bookmark-on-switch works by polling playback state every 5 seconds
-  (`POLL_INTERVAL_MS` in `js/config.js`), so the saved position can be up to
-  ~5 seconds behind the actual switch moment. Lower the interval if you
-  want tighter precision (at the cost of more API calls).
+- Auto-bookmark-on-switch works by polling playback state on an interval, so
+  the saved position can be up to one interval behind the actual switch
+  moment. The **Settings** card in the app has:
+  - a checkbox to turn auto-bookmark-on-switch off (manual **Bookmark this
+    spot** still works); and
+  - a dropdown to change how often the app polls Spotify (3–60 s). Lower is
+    tighter precision at the cost of more API calls.
+  Both are stored per-device in `localStorage`. `POLL_INTERVAL_MS` in
+  `js/config.js` is only the default before you touch the dropdown.
 - The Firestore security model is intentionally simple for a personal /
   small-allowlist app — see the comment block at the top of
   `js/firebaseBookmarks.js` before sharing this more widely.

@@ -14,8 +14,41 @@ const el = {
   bookmarkStatus: document.getElementById("bookmark-status"),
   bookmarkList: document.getElementById("bookmark-list"),
   bookmarkEmpty: document.getElementById("bookmark-empty"),
+  autoBookmarkToggle: document.getElementById("auto-bookmark-toggle"),
+  pollIntervalSelect: document.getElementById("poll-interval-select"),
   toast: document.getElementById("toast"),
 };
+
+// User-adjustable settings, persisted per-device in localStorage. Defaults
+// apply when nothing is stored yet (auto-bookmark on, config's poll interval).
+const SETTINGS_KEY = "playlist-resume-settings";
+
+function loadSettings() {
+  const defaults = { autoBookmark: true, pollIntervalMs: POLL_INTERVAL_MS };
+  try {
+    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    return {
+      autoBookmark:
+        typeof stored.autoBookmark === "boolean" ? stored.autoBookmark : defaults.autoBookmark,
+      pollIntervalMs:
+        Number.isFinite(stored.pollIntervalMs) && stored.pollIntervalMs >= 1000
+          ? stored.pollIntervalMs
+          : defaults.pollIntervalMs,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    /* private mode / storage disabled — settings just won't persist */
+  }
+}
+
+const settings = loadSettings();
 
 let spotifyUserId = null;
 let currentSnapshot = null; // latest playback snapshot (may have no resumable context)
@@ -161,7 +194,7 @@ async function pollOnce() {
 
   // Left a context (switched playlist/album, went to a non-resumable
   // context, or stopped) — auto-save wherever we last were.
-  if (previousKey && previousKey !== newKey) {
+  if (settings.autoBookmark && previousKey && previousKey !== newKey) {
     try {
       const bookmark = await buildBookmarkFromSnapshot(lastContextSnapshot);
       await saveBookmark(spotifyUserId, bookmark);
@@ -180,7 +213,7 @@ async function pollOnce() {
 function startPolling() {
   stopPolling();
   pollOnce();
-  pollHandle = setInterval(pollOnce, POLL_INTERVAL_MS);
+  pollHandle = setInterval(pollOnce, settings.pollIntervalMs);
 }
 
 function stopPolling() {
@@ -218,6 +251,21 @@ async function init() {
     enterLoggedOut();
   });
   el.bookmarkBtn.addEventListener("click", onManualBookmark);
+
+  el.autoBookmarkToggle.checked = settings.autoBookmark;
+  el.autoBookmarkToggle.addEventListener("change", () => {
+    settings.autoBookmark = el.autoBookmarkToggle.checked;
+    saveSettings();
+  });
+
+  el.pollIntervalSelect.value = String(settings.pollIntervalMs);
+  el.pollIntervalSelect.addEventListener("change", () => {
+    const ms = parseInt(el.pollIntervalSelect.value, 10);
+    if (!Number.isFinite(ms)) return;
+    settings.pollIntervalMs = ms;
+    saveSettings();
+    if (pollHandle) startPolling(); // apply the new cadence immediately
+  });
 
   try {
     await handleRedirectIfPresent();
