@@ -89,17 +89,19 @@ function renderNowPlaying() {
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str ?? "";
-  return div.innerHTML;
+  // Also escape quotes so the result is safe inside an HTML attribute.
+  return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 async function buildBookmarkFromSnapshot(snapshot) {
-  const { type, id, uri } = snapshot.context;
-  const contextName = await getContextName(type, id);
+  const { type, id, uri, name } = snapshot.context;
+  const contextName = name ?? (await getContextName(type, id));
   return {
     contextType: type,
     contextId: id,
     contextUri: uri,
     contextName,
+    imageUrl: snapshot.track.imageUrl ?? null,
     trackId: snapshot.track.id,
     trackUri: snapshot.track.uri,
     trackName: snapshot.track.name,
@@ -118,10 +120,18 @@ async function refreshBookmarkList() {
     li.className = "bookmark-item";
     const usedAt = bm.lastUsedAt ?? bm.updatedAt;
     const used = usedAt?.toDate ? usedAt.toDate().toLocaleString() : "";
+    const art = bm.imageUrl
+      ? `<img class="bookmark-art" src="${escapeHtml(bm.imageUrl)}" alt="" width="52" height="52" loading="lazy" />`
+      : `<div class="bookmark-art bookmark-art-empty" aria-hidden="true"></div>`;
     li.innerHTML = `
-      <div class="context-name">${escapeHtml(bm.contextName)}<span class="context-type">${escapeHtml(bm.contextType)}</span></div>
-      <div class="track-line">${escapeHtml(bm.trackName)} — ${escapeHtml(bm.artists)}</div>
-      <div class="updated">Last used ${escapeHtml(used)}</div>
+      <div class="bookmark-main">
+        ${art}
+        <div class="bookmark-text">
+          <div class="context-name">${escapeHtml(bm.contextName)}<span class="context-type">${escapeHtml(bm.contextType)}</span></div>
+          <div class="track-line">${escapeHtml(bm.trackName)} — ${escapeHtml(bm.artists)}</div>
+          <div class="updated">Last used ${escapeHtml(used)}</div>
+        </div>
+      </div>
       <div class="bookmark-actions">
         <button class="resume-btn">Resume</button>
         <button class="remove-btn">Remove</button>

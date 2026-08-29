@@ -122,6 +122,13 @@ Redirect URI matches the real deployed URL).
 - The bookmark list is ordered most-recently-used first, where "used" means
   either saved (manual or auto) or resumed. Bookmarks created before this
   ordering existed fall back to their save time.
+- Each bookmark shows the album art of the bookmarked track (it rides along
+  in the playback payload, so it costs no extra API call). Bookmarks saved
+  before this feature have no stored image and show a blank tile until
+  re-saved.
+- If Spotify rate-limits a request (HTTP 429), the API wrapper waits out the
+  `Retry-After` delay (capped at 15s) and retries up to 3 times rather than
+  hammering.
 - Auto-bookmark-on-switch works by polling playback state on an interval, so
   the saved position can be up to one interval behind the actual switch
   moment. The **Settings** card in the app has:
@@ -151,7 +158,7 @@ firestore.rules           Firestore security rules to paste into the Firebase co
 js/config.js              YOUR Spotify + Firebase config (fill in per steps above)
 js/pkce.js                PKCE code_verifier/code_challenge helpers
 js/auth.js                Spotify OAuth login/redirect/token refresh
-js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, playlist/album name)
+js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, playlist name; 429 backoff)
 js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist/album per user)
 js/main.js                Wires it all together: UI, polling loop, auto-bookmark
 icons/                    App icons for the PWA manifest
