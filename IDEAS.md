@@ -59,6 +59,16 @@ calls `PUT /me/player/seek`. `normalizePlaybackState` carries `durationMs`.
 `CACHE_NAME` in `sw.js` together. `npm run bump` = current + 1;
 `npm run bump -- N` sets it.
 
+## Done since
+
+- **"Keep an already-bookmarked context updated"** setting (`followBookmark`,
+  off by default) — advances a bookmark's spot on each track change while you
+  play a context you've bookmarked. `runPoll` tracks `lastTrackId` and a
+  `bookmarkedContexts` Set built in `refreshBookmarkList`.
+- **Foldable Settings card** — `<details class="card">`, collapsed by
+  default, open state remembered in `localStorage`. (Caret is a JS-toggled
+  `<span>` — a `[open] > … ::after` transform wouldn't apply on `<details>`.)
+
 ## Later / maybe
 
 - **#5 Export / import bookmarks** — a JSON blob to copy out for backup or

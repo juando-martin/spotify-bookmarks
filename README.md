@@ -188,15 +188,20 @@ Redirect URI matches the real deployed URL).
 - If Spotify rate-limits a request (HTTP 429), the API wrapper waits out the
   `Retry-After` delay (capped at 15s) and retries up to 3 times rather than
   hammering.
-- Auto-bookmark-on-switch works by polling playback state on an interval, so
-  the saved position can be up to one interval behind the actual switch
-  moment. The **Settings** card in the app has:
-  - a checkbox to turn auto-bookmark-on-switch off (manual **Bookmark this
-    spot** still works); and
-  - a dropdown to change how often the app polls Spotify (3–60 s). Lower is
-    tighter precision at the cost of more API calls.
-  Both are stored per-device in `localStorage`. `POLL_INTERVAL_MS` in
-  `js/config.js` is only the default before you touch the dropdown.
+- The **Settings** card (a foldable `<details>`, collapsed by default, state
+  remembered per device) has:
+  - **Auto-bookmark when I switch playlist or album** — on by default; saves
+    where you were when you leave a context. Manual **Bookmark this spot**
+    works regardless.
+  - **Keep an already-bookmarked playlist/album updated as it plays** — off
+    by default; when the current context is one you've bookmarked, its
+    saved spot advances on every track change (one Firestore write per song
+    while you listen).
+  - **Check Spotify every** 3–60 s — lower is tighter precision at the cost
+    of more API calls. Auto-bookmark-on-switch can be up to one interval
+    behind the actual moment.
+  All three are stored per-device in `localStorage`; `POLL_INTERVAL_MS` in
+  `js/config.js` is only the pre-touch default for the interval.
 - Polling only runs **while the app is the visible tab**. It's paused on
   `visibilitychange` when hidden and does one immediate catch-up poll when
   you come back, so backgrounding the app (or closing the PWA) means

@@ -37,7 +37,9 @@ const el = {
   devicePickerMsg: document.getElementById("device-picker-msg"),
   deviceList: document.getElementById("device-list"),
   deviceCancel: document.getElementById("device-cancel"),
+  settingsCard: document.getElementById("settings-card"),
   autoBookmarkToggle: document.getElementById("auto-bookmark-toggle"),
+  followBookmarkToggle: document.getElementById("follow-bookmark-toggle"),
   pollIntervalSelect: document.getElementById("poll-interval-select"),
   updateBanner: document.getElementById("update-banner"),
   updateVersion: document.getElementById("update-version"),
@@ -50,12 +52,18 @@ const el = {
 const SETTINGS_KEY = "playlist-resume-settings";
 
 function loadSettings() {
-  const defaults = { autoBookmark: true, pollIntervalMs: POLL_INTERVAL_MS };
+  const defaults = {
+    autoBookmark: true,
+    followBookmark: false,
+    pollIntervalMs: POLL_INTERVAL_MS,
+  };
   try {
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
     return {
       autoBookmark:
         typeof stored.autoBookmark === "boolean" ? stored.autoBookmark : defaults.autoBookmark,
+      followBookmark:
+        typeof stored.followBookmark === "boolean" ? stored.followBookmark : defaults.followBookmark,
       pollIntervalMs:
         Number.isFinite(stored.pollIntervalMs) && stored.pollIntervalMs >= 1000
           ? stored.pollIntervalMs
@@ -101,6 +109,10 @@ function markUsedNow(id) {
 // Lets the Now playing card show your name for a playlist Spotify's API
 // won't name (e.g. an editorial "Mix"), matching what the bookmark shows.
 const customNameByContext = new Map();
+// Every bookmarked contextKey, rebuilt on every refreshBookmarkList() — used
+// by the "keep an active bookmark updated" setting.
+const bookmarkedContexts = new Set();
+let lastTrackId = null;
 
 /**
  * Show a transient toast. Pass { actionLabel, onAction } for an inline
@@ -264,8 +276,10 @@ async function refreshBookmarkList() {
     if ((locallyUsedAt.get(b.id) ?? 0) <= bookmarkUsedMs(b)) locallyUsedAt.delete(b.id);
   }
   customNameByContext.clear();
+  bookmarkedContexts.clear();
   for (const b of all) {
-    if (b.customName) customNameByContext.set(b.id, b.customName); // b.id is the contextKey
+    bookmarkedContexts.add(b.id); // b.id is the contextKey
+    if (b.customName) customNameByContext.set(b.id, b.customName);
   }
   // Hide a bookmark that's mid-Undo so a background re-render doesn't resurrect it.
   const bookmarks = pendingRemoval
@@ -537,6 +551,28 @@ async function runPoll() {
     }
   }
 
+  // Playing inside a context that's already bookmarked, and the track just
+  // changed — advance that bookmark to the new spot (opt-in setting).
+  const newTrackId = snapshot?.track?.id ?? null;
+  if (
+    settings.followBookmark &&
+    newKey &&
+    lastTrackId &&
+    newTrackId &&
+    newTrackId !== lastTrackId &&
+    bookmarkedContexts.has(newKey)
+  ) {
+    try {
+      const bookmark = await buildBookmarkFromSnapshot(snapshot);
+      await saveBookmark(spotifyUserId, bookmark);
+      markUsedNow(newKey);
+      await refreshBookmarkList();
+    } catch (err) {
+      console.error("Follow-bookmark update failed:", err);
+    }
+  }
+  lastTrackId = newTrackId;
+
   currentSnapshot = snapshot;
   lastContextSnapshot = snapshot?.context ? snapshot : null;
   if (!seekDragging) estimatedMs = snapshot?.progressMs ?? 0; // resync the progress bar
@@ -719,9 +755,31 @@ async function init() {
     history.replaceState({}, "", location.pathname + (qs ? `?${qs}` : "") + location.hash);
   }
 
+  // Settings card is a <details>; remember whether it's open, per device.
+  const foldCaret = document.getElementById("fold-caret");
+  const syncFold = () => {
+    if (foldCaret) foldCaret.textContent = el.settingsCard.open ? "⌃" : "⌄";
+  };
+  el.settingsCard.open = localStorage.getItem("playlist-resume-settings-open") === "1";
+  syncFold();
+  el.settingsCard.addEventListener("toggle", () => {
+    syncFold();
+    try {
+      localStorage.setItem("playlist-resume-settings-open", el.settingsCard.open ? "1" : "0");
+    } catch {
+      /* storage disabled */
+    }
+  });
+
   el.autoBookmarkToggle.checked = settings.autoBookmark;
   el.autoBookmarkToggle.addEventListener("change", () => {
     settings.autoBookmark = el.autoBookmarkToggle.checked;
+    saveSettings();
+  });
+
+  el.followBookmarkToggle.checked = settings.followBookmark;
+  el.followBookmarkToggle.addEventListener("change", () => {
+    settings.followBookmark = el.followBookmarkToggle.checked;
     saveSettings();
   });
 

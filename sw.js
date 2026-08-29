@@ -12,7 +12,7 @@
 // hard `reload`. Spotify API / Firebase / gstatic requests are never touched.
 //
 // Keep the version number here in step with APP_VERSION in js/version.js.
-const CACHE_NAME = "playlist-resume-shell-v23";
+const CACHE_NAME = "playlist-resume-shell-v24";
 
 const SHELL_FILES = [
   "./",

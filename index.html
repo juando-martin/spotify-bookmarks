@@ -58,24 +58,30 @@
         <button id="device-cancel" class="link">Cancel</button>
       </section>
 
-      <section class="card">
-        <h2>Settings</h2>
-        <label class="setting">
-          <input type="checkbox" id="auto-bookmark-toggle" />
-          <span>Auto-bookmark when I switch playlist or album</span>
-        </label>
-        <label class="setting">
-          <span>Check Spotify every</span>
-          <select id="poll-interval-select">
-            <option value="3000">3 seconds</option>
-            <option value="5000">5 seconds</option>
-            <option value="10000">10 seconds</option>
-            <option value="20000">20 seconds</option>
-            <option value="30000">30 seconds</option>
-            <option value="60000">60 seconds</option>
-          </select>
-        </label>
-      </section>
+      <details id="settings-card" class="card">
+        <summary><h2>Settings <span id="fold-caret" aria-hidden="true">⌄</span></h2></summary>
+        <div class="settings-body">
+          <label class="setting">
+            <input type="checkbox" id="auto-bookmark-toggle" />
+            <span>Auto-bookmark when I switch playlist or album</span>
+          </label>
+          <label class="setting">
+            <input type="checkbox" id="follow-bookmark-toggle" />
+            <span>Keep an already-bookmarked playlist/album updated as it plays (on each track change)</span>
+          </label>
+          <label class="setting">
+            <span>Check Spotify every</span>
+            <select id="poll-interval-select">
+              <option value="3000">3 seconds</option>
+              <option value="5000">5 seconds</option>
+              <option value="10000">10 seconds</option>
+              <option value="20000">20 seconds</option>
+              <option value="30000">30 seconds</option>
+              <option value="60000">60 seconds</option>
+            </select>
+          </label>
+        </div>
+      </details>
 
       <section class="card">
         <h2>Your bookmarks</h2>
