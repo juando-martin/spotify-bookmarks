@@ -57,7 +57,12 @@ export async function getPlaybackState() {
   return normalizePlaybackState(await res.json());
 }
 
-/** Playlist/album display name, cached in memory for the session. */
+/**
+ * Playlist/album display name, cached in memory for the session. Returns
+ * null when the name can't be read (a transient error, or an editorial
+ * playlist a Development-Mode app isn't allowed to fetch) — the caller
+ * decides what to show in that case.
+ */
 export async function getContextName(type, id) {
   const cacheKey = `${type}:${id}`;
   if (contextNameCache.has(cacheKey)) {
@@ -66,9 +71,9 @@ export async function getContextName(type, id) {
   const path =
     type === "playlist" ? `/playlists/${id}?fields=name` : `/albums/${id}`;
   const res = await apiFetch(path);
-  if (!res.ok) return `Unknown ${type}`; // transient — don't cache a failure
-  const name = (await res.json()).name;
-  contextNameCache.set(cacheKey, name);
+  if (!res.ok) return null; // don't cache — could be transient
+  const name = (await res.json()).name || null;
+  if (name) contextNameCache.set(cacheKey, name);
   return name;
 }
 

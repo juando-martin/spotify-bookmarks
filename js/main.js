@@ -89,6 +89,11 @@ function markUsedNow(id) {
   locallyUsedAt.set(id, Date.now());
 }
 
+// contextKey -> user's customName, rebuilt on every refreshBookmarkList().
+// Lets the Now playing card show your name for a playlist Spotify's API
+// won't name (e.g. an editorial "Mix"), matching what the bookmark shows.
+const customNameByContext = new Map();
+
 /**
  * Show a transient toast. Pass { actionLabel, onAction } for an inline
  * button (e.g. Undo); ms controls how long it stays up.
@@ -146,7 +151,11 @@ function renderNowPlaying() {
   if (!context) {
     metaLines.push("Not in a playlist or album context");
   } else if (context.type === "playlist") {
-    metaLines.push(context.name ? `Playlist · ${escapeHtml(context.name)}` : "In a playlist");
+    // Prefer the name you gave the matching bookmark (Spotify's API won't
+    // name an editorial "Mix"), then Spotify's own name.
+    const key = contextKey(context.type, context.id);
+    const name = customNameByContext.get(key) || context.name;
+    metaLines.push(name ? `Playlist · ${escapeHtml(name)}` : "In a playlist");
   }
   // An album context adds nothing — the "Album ·" line above already names it.
 
@@ -166,7 +175,7 @@ function renderNowPlaying() {
 
 async function buildBookmarkFromSnapshot(snapshot) {
   const { type, id, uri, name } = snapshot.context;
-  const contextName = name ?? (await getContextName(type, id));
+  const contextName = name ?? (await getContextName(type, id)) ?? `Unknown ${type}`;
   return {
     contextType: type,
     contextId: id,
@@ -191,6 +200,10 @@ async function refreshBookmarkList() {
   // Drop local "just used" marks the server value has now caught up to.
   for (const b of all) {
     if ((locallyUsedAt.get(b.id) ?? 0) <= bookmarkUsedMs(b)) locallyUsedAt.delete(b.id);
+  }
+  customNameByContext.clear();
+  for (const b of all) {
+    if (b.customName) customNameByContext.set(b.id, b.customName); // b.id is the contextKey
   }
   // Hide a bookmark that's mid-Undo so a background re-render doesn't resurrect it.
   const bookmarks = pendingRemoval
@@ -465,8 +478,9 @@ async function runPoll() {
   currentSnapshot = snapshot;
   lastContextSnapshot = snapshot?.context ? snapshot : null;
 
-  // Resolve the playlist/album name for the Now playing card. Albums already
-  // carry it; playlists need one lookup (cached in memory after the first).
+  // Resolve the Spotify name for the Now playing card (albums already carry
+  // it; playlists need one API lookup, cached in memory). renderNowPlaying
+  // layers your custom bookmark name on top of this.
   if (snapshot?.context && !snapshot.context.name) {
     try {
       snapshot.context.name = await getContextName(
@@ -474,7 +488,7 @@ async function runPoll() {
         snapshot.context.id,
       );
     } catch {
-      /* leave name null — the card just shows "In playlist" */
+      /* leave name null — the card falls back to "In a playlist" */
     }
   }
 
