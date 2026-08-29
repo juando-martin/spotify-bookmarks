@@ -131,6 +131,11 @@ Redirect URI matches the real deployed URL).
     tighter precision at the cost of more API calls.
   Both are stored per-device in `localStorage`. `POLL_INTERVAL_MS` in
   `js/config.js` is only the default before you touch the dropdown.
+- Polling only runs **while the app is open and in the foreground**. On
+  Android, closing the PWA (or backgrounding it for a while) stops or
+  heavily throttles the poll loop, so switches made with the app closed
+  aren't auto-captured. Manual bookmarking and Resume are unaffected. See
+  "Always-on auto-bookmark" below if you want it to run 24/7.
 - The Firestore security model is intentionally simple for a personal /
   small-allowlist app — see the comment block at the top of
   `js/firebaseBookmarks.js` before sharing this more widely.
@@ -151,3 +156,52 @@ js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist/album
 js/main.js                Wires it all together: UI, polling loop, auto-bookmark
 icons/                    App icons for the PWA manifest
 ```
+
+## Always-on auto-bookmark (optional)
+
+The app only polls while it's open and focused, so auto-bookmark-on-switch
+only catches switches you make while looking at it. If you want it to run
+around the clock without writing any backend code, park the already-deployed
+page in a browser on an always-on machine (a Raspberry Pi, a NAS, an old
+laptop). That machine just becomes a persistent client — same code, same
+Firestore, nothing new to deploy.
+
+1. On the always-on machine, launch Chromium pointed at the deployed URL
+   with background throttling disabled (otherwise Chrome slows the poll loop
+   right down when the window isn't visible):
+
+   ```bash
+   chromium --kiosk https://<your-username>.github.io/spotify-bookmarks/ \
+     --user-data-dir="$HOME/.spotify-bookmarks-profile" \
+     --disable-background-timer-throttling \
+     --disable-backgrounding-occluded-windows \
+     --disable-renderer-backgrounding
+   ```
+
+   On a headless Pi, wrap it in a virtual display: `xvfb-run -a chromium …`
+   (package names: `chromium` or `chromium-browser`, plus `xvfb`).
+
+2. The first time, complete the **Log in with Spotify** flow in that browser
+   once. The `--user-data-dir` above gives it a persistent profile, so the
+   refresh token in `localStorage` survives reboots and the app keeps
+   renewing its own access token. You only re-log-in if that profile
+   directory is deleted.
+
+3. Optionally lower the poll interval in the app's **Settings** card on that
+   machine (it's stored per-profile, so it won't affect your phone).
+
+4. To start it automatically, run the command from a systemd user service,
+   a `@reboot` cron entry, or your desktop's autostart.
+
+Notes:
+
+- The redirect URI is the same deployed URL you already registered with
+  Spotify — nothing to add in the dashboard.
+- If your phone also has the app open at the same time, both poll and both
+  write the same bookmark. It's harmless (identical, idempotent writes) —
+  just double the API calls, well within rate limits. In practice you'd
+  leave the always-on client to do the capturing and only open the phone app
+  to hit **Resume**.
+- The only thing a real backend (e.g. a Firebase scheduled Cloud Function
+  holding your refresh token) would add over this is not needing a physical
+  device that stays powered on. The polling and latency are identical.
