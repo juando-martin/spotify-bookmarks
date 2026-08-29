@@ -90,6 +90,39 @@ export async function getContextMeta(type, id) {
   return meta;
 }
 
+/**
+ * Search the catalogue for playlists and albums matching `query`. Returns a
+ * flat list of `{ type, id, uri, name, subtitle, imageUrl }` (playlists
+ * first). Empty on a blank query or an error.
+ */
+export async function searchContexts(query) {
+  const q = query.trim();
+  if (!q) return [];
+  const res = await apiFetch(
+    `/search?type=playlist,album&limit=6&q=${encodeURIComponent(q)}`,
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+
+  const playlists = (data.playlists?.items || []).filter(Boolean).map((p) => ({
+    type: "playlist",
+    id: p.id,
+    uri: p.uri,
+    name: p.name,
+    subtitle: p.owner?.display_name ? `Playlist · ${p.owner.display_name}` : "Playlist",
+    imageUrl: smallestImageUrl(p.images),
+  }));
+  const albums = (data.albums?.items || []).filter(Boolean).map((a) => ({
+    type: "album",
+    id: a.id,
+    uri: a.uri,
+    name: a.name,
+    subtitle: `Album · ${(a.artists || []).map((x) => x.name).join(", ")}`,
+    imageUrl: smallestImageUrl(a.images),
+  }));
+  return [...playlists, ...albums].slice(0, 8);
+}
+
 /** Spotify Connect devices this account can see (active or idle). */
 export async function getDevices() {
   const res = await apiFetch("/me/player/devices");
@@ -99,9 +132,9 @@ export async function getDevices() {
 }
 
 /**
- * Start/Resume Playback inside a specific context (playlist or album), at a
- * specific track, at a specific position within that track. Pass deviceId to
- * target (and transfer playback to) a specific idle device.
+ * Start/Resume Playback inside a context (playlist or album). With trackUri
+ * it starts at that track + position; without one it starts from the top of
+ * the context. Pass deviceId to target (and transfer to) a specific device.
  */
 export async function resumePlayback({ contextUri, trackUri, positionMs, deviceId }) {
   const path = deviceId
@@ -112,7 +145,7 @@ export async function resumePlayback({ contextUri, trackUri, positionMs, deviceI
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       context_uri: contextUri,
-      offset: { uri: trackUri },
+      offset: trackUri ? { uri: trackUri } : { position: 0 },
       position_ms: positionMs || 0,
     }),
   });

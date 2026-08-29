@@ -16,6 +16,8 @@ it's a normal `git push` to deploy.
   album. Resume drops you back there with the queue continuing normally.
 - **Auto-bookmark on switch** — leaving a playlist/album saves where you
   were, automatically (toggle in Settings).
+- **Find a playlist or album** — a search box with live results; tap one to
+  start it playing (then bookmark it from the Now playing card).
 - **Now playing card** — album art, track / album / playlist name, and
   **⏮ / ⏯ / ⏭** transport controls for the active device.
 - **Bookmark list** — album-art thumbnail, saved position ("resumes at
@@ -143,6 +145,12 @@ Redirect URI matches the real deployed URL).
 - Each bookmark shows the saved position ("resumes at 2:34") and when it was
   last used as a relative time ("used 3 hours ago"; hover/long-press for the
   exact timestamp).
+- **Find a playlist or album** is a foldable card between Now playing and
+  Settings. Typing searches the catalogue (`/search?type=playlist,album`,
+  debounced 300 ms); tapping a result plays it from the start on the active
+  device (`context_uri` with `offset: { position: 0 }`) — same
+  needs-a-device caveat as Resume. It doesn't create a bookmark; once it's
+  playing, "Bookmark this spot" does.
 - The Now playing card has **⏮ / ⏯ / ⏭** transport buttons and a **seek
   bar** (shown only when something's on a device). They control whatever
   device is active — same "needs an active device" caveat as Resume.

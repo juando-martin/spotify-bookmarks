@@ -28,6 +28,14 @@ Original backlog #1–#12, plus everything added along the way:
   `updateViaCache: none`, Reload button clears everything).
 - `js/format.js` + unit tests; `npm run bump`; copyright headers.
 
+## Done since
+
+- **Catalogue search** — "Find a playlist or album" foldable card;
+  `searchContexts()` hits `/search?type=playlist,album` (debounced 300 ms),
+  tapping a result plays it from the start (`resumePlayback` now takes an
+  optional trackUri; without one it sends `offset: { position: 0 }`).
+  `setupFoldable()` helper shared with the Settings card.
+
 ## Left
 
 ### 5. Export / import bookmarks — DONE

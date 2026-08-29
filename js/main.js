@@ -12,7 +12,7 @@ import {
   spotifyWebUrl,
 } from "./format.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
-import { getCurrentUser, getPlaybackState, getContextMeta, getDevices, resumePlayback, playbackControl, seek } from "./spotifyApi.js";
+import { getCurrentUser, getPlaybackState, getContextMeta, getDevices, resumePlayback, playbackControl, seek, searchContexts } from "./spotifyApi.js";
 import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, contextKey } from "./firebaseBookmarks.js";
 
 const el = {
@@ -46,6 +46,9 @@ const el = {
   deviceList: document.getElementById("device-list"),
   deviceCancel: document.getElementById("device-cancel"),
   settingsCard: document.getElementById("settings-card"),
+  searchCard: document.getElementById("search-card"),
+  searchInput: document.getElementById("context-search"),
+  searchResults: document.getElementById("search-results"),
   autoBookmarkToggle: document.getElementById("auto-bookmark-toggle"),
   followBookmarkToggle: document.getElementById("follow-bookmark-toggle"),
   pollIntervalSelect: document.getElementById("poll-interval-select"),
@@ -473,6 +476,112 @@ function hideDevicePicker() {
   el.deviceList.innerHTML = "";
 }
 
+// --- Foldable <details> cards ----------------------------------------------
+
+function setupFoldable(detailsEl, caretEl, storageKey) {
+  const sync = () => {
+    if (caretEl) caretEl.textContent = detailsEl.open ? "⌃" : "⌄";
+  };
+  try {
+    detailsEl.open = localStorage.getItem(storageKey) === "1";
+  } catch {
+    /* storage disabled */
+  }
+  sync();
+  detailsEl.addEventListener("toggle", () => {
+    sync();
+    try {
+      localStorage.setItem(storageKey, detailsEl.open ? "1" : "0");
+    } catch {
+      /* storage disabled */
+    }
+  });
+}
+
+// --- Catalogue search ------------------------------------------------------
+
+let searchTimer = null;
+
+function onSearchInput() {
+  clearTimeout(searchTimer);
+  const q = el.searchInput.value.trim();
+  if (!q) {
+    el.searchResults.replaceChildren();
+    return;
+  }
+  searchTimer = setTimeout(() => runSearch(q), 300);
+}
+
+async function runSearch(q) {
+  let results;
+  try {
+    results = await searchContexts(q);
+  } catch (err) {
+    console.error("Search failed:", err);
+    return;
+  }
+  if (el.searchInput.value.trim() !== q) return; // a newer query is pending
+  renderSearchResults(results);
+}
+
+function renderSearchResults(results) {
+  el.searchResults.replaceChildren();
+  if (!results.length) {
+    const li = document.createElement("li");
+    li.className = "search-empty";
+    li.textContent = "No matches";
+    el.searchResults.appendChild(li);
+    return;
+  }
+  for (const r of results) {
+    const li = document.createElement("li");
+    li.className = "search-result";
+    const art = r.imageUrl
+      ? `<img class="search-art" src="${escapeHtml(r.imageUrl)}" alt="" width="40" height="40" loading="lazy" />`
+      : `<div class="search-art search-art-empty" aria-hidden="true"></div>`;
+    li.innerHTML = `
+      ${art}
+      <span class="search-text">
+        <span class="search-name">${escapeHtml(r.name)}</span>
+        <span class="search-sub">${escapeHtml(r.subtitle)}</span>
+      </span>
+    `;
+    li.setAttribute("role", "button");
+    li.tabIndex = 0;
+    const go = () => onPlayContext(r);
+    li.addEventListener("click", go);
+    li.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        go();
+      }
+    });
+    el.searchResults.appendChild(li);
+  }
+}
+
+async function onPlayContext(item) {
+  try {
+    await resumePlayback({ contextUri: item.uri });
+    showToast(`Playing ${item.name}`);
+    el.searchResults.replaceChildren();
+    el.searchInput.value = "";
+    setTimeout(pollOnce, 1500);
+  } catch (err) {
+    console.error(err);
+    if (/\b404\b/.test(err.message)) {
+      const devices = (await getDevices().catch(() => [])).filter((d) => !d.is_restricted);
+      showToast(
+        devices.length
+          ? "Open Spotify on a device, then try again."
+          : "No Spotify device is available — open Spotify first.",
+      );
+    } else {
+      showToast("Couldn't start that.");
+    }
+  }
+}
+
 /** Finalize a pending Remove now (its grace period elapsed, or we're leaving). */
 function commitRemoval() {
   if (!pendingRemoval) return;
@@ -772,6 +881,9 @@ function enterLoggedOut() {
   stopProgressTicker();
   commitRemoval();
   hideDevicePicker();
+  clearTimeout(searchTimer);
+  el.searchInput.value = "";
+  el.searchResults.replaceChildren();
   el.loginView.hidden = false;
   el.appView.hidden = true;
 }
@@ -840,21 +952,11 @@ async function init() {
     history.replaceState({}, "", location.pathname + (qs ? `?${qs}` : "") + location.hash);
   }
 
-  // Settings card is a <details>; remember whether it's open, per device.
-  const foldCaret = document.getElementById("fold-caret");
-  const syncFold = () => {
-    if (foldCaret) foldCaret.textContent = el.settingsCard.open ? "⌃" : "⌄";
-  };
-  el.settingsCard.open = localStorage.getItem("playlist-resume-settings-open") === "1";
-  syncFold();
-  el.settingsCard.addEventListener("toggle", () => {
-    syncFold();
-    try {
-      localStorage.setItem("playlist-resume-settings-open", el.settingsCard.open ? "1" : "0");
-    } catch {
-      /* storage disabled */
-    }
-  });
+  // Foldable <details> cards remember their open state per device.
+  setupFoldable(el.settingsCard, document.getElementById("fold-caret"), "playlist-resume-settings-open");
+  setupFoldable(el.searchCard, document.getElementById("search-caret"), "playlist-resume-search-open");
+  el.searchInput.addEventListener("input", onSearchInput);
+  el.searchInput.addEventListener("search", onSearchInput); // "x" clear button
 
   el.autoBookmarkToggle.checked = settings.autoBookmark;
   el.autoBookmarkToggle.addEventListener("change", () => {

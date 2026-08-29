@@ -71,7 +71,7 @@ details.card > summary > h2 {
   align-items: center;
 }
 
-#fold-caret {
+.fold-caret {
   margin-left: auto;
   color: var(--muted);
   font-size: 1rem;
@@ -80,6 +80,88 @@ details.card > summary > h2 {
 
 details.card[open] > summary {
   margin-bottom: 0.75rem;
+}
+
+/* Catalogue search */
+.search-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+#context-search {
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  background: #2c2c2c;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+}
+
+#search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.search-result {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.search-result:active {
+  background: #2c2c2c;
+}
+
+.search-art {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #2c2c2c;
+}
+
+.search-art-empty {
+  border: 1px solid var(--border);
+}
+
+.search-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.search-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-sub {
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-empty {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 0.3rem 0.1rem;
 }
 
 button {

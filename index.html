@@ -59,8 +59,17 @@
         <button id="device-cancel" class="link">Cancel</button>
       </section>
 
+      <details id="search-card" class="card">
+        <summary><h2>Find a playlist or album <span id="search-caret" class="fold-caret" aria-hidden="true">⌄</span></h2></summary>
+        <div class="search-body">
+          <input id="context-search" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="Search playlists and albums…" aria-label="Search playlists and albums" />
+          <ul id="search-results"></ul>
+        </div>
+      </details>
+
       <details id="settings-card" class="card">
-        <summary><h2>Settings <span id="fold-caret" aria-hidden="true">⌄</span></h2></summary>
+        <summary><h2>Settings <span id="fold-caret" class="fold-caret" aria-hidden="true">⌄</span></h2></summary>
         <div class="settings-body">
           <label class="setting">
             <input type="checkbox" id="auto-bookmark-toggle" />
