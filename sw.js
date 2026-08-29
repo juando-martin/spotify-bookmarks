@@ -1,14 +1,18 @@
 // Minimal service worker for the app shell.
 //
-// Strategy: network-first for same-origin GETs, falling back to the cache
-// only when offline. This app is useless without the network anyway (it
-// talks to Spotify + Firebase), so there's no reason to ever serve a stale
-// shell while online — that just meant "reload twice after every deploy".
-// The cache exists purely so the PWA still opens (offline shell) with no
-// connection. Spotify API / Firebase / gstatic requests are never touched.
+// Strategy: network-first for same-origin GETs, cache only as an offline
+// fallback. The app is useless without the network anyway (Spotify +
+// Firebase), so it should never serve a stale shell while online.
+//
+// The catch that caused every "still on the old version" report: GitHub
+// Pages sends `Cache-Control: max-age=600` with no revalidation, so a plain
+// fetch() — even from a "network-first" worker — is served from the browser
+// HTTP cache for 10 minutes. So every shell fetch here forces revalidation
+// (`cache: no-cache` → conditional request, cheap 304s) and install does a
+// hard `reload`. Spotify API / Firebase / gstatic requests are never touched.
 //
 // Keep the version number here in step with APP_VERSION in js/version.js.
-const CACHE_NAME = "playlist-resume-shell-v20";
+const CACHE_NAME = "playlist-resume-shell-v21";
 
 const SHELL_FILES = [
   "./",
@@ -29,7 +33,15 @@ const SHELL_FILES = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(
+        SHELL_FILES.map((file) =>
+          fetch(file, { cache: "reload" }).then((res) => {
+            if (res.ok) return cache.put(file, res);
+          }),
+        ),
+      ),
+    ),
   );
   self.skipWaiting();
 });
@@ -53,9 +65,9 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    fetch(event.request)
+    // no-cache: hit the server and revalidate rather than trusting max-age.
+    fetch(url.pathname + url.search, { cache: "no-cache" })
       .then((response) => {
-        // Refresh the cached copy on every successful fetch.
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));

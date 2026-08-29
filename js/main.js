@@ -556,11 +556,23 @@ async function checkForUpdate() {
 
 async function applyUpdate() {
   el.updateReload.disabled = true;
+  el.updateReload.textContent = "Updating…";
+  // Nuke every layer that could serve a stale build: the Cache Storage
+  // caches, then the service worker registrations. The reload then hits the
+  // network with no worker in the way.
+  try {
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch {
+    /* ignore */
+  }
   try {
     const regs = (await navigator.serviceWorker?.getRegistrations?.()) ?? [];
     await Promise.all(regs.map((r) => r.unregister()));
   } catch {
-    /* ignore — reload below still helps */
+    /* ignore */
   }
   location.reload();
 }
@@ -610,7 +622,11 @@ async function init() {
   checkForUpdate();
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js").catch((err) => console.error("SW registration failed:", err));
+    // updateViaCache: "none" — never serve sw.js itself from the HTTP cache,
+    // so a new worker is always detected on the next load.
+    navigator.serviceWorker
+      .register("sw.js", { updateViaCache: "none" })
+      .catch((err) => console.error("SW registration failed:", err));
   }
 
   el.loginBtn.addEventListener("click", loginWithSpotify);

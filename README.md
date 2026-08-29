@@ -206,14 +206,21 @@ Redirect URI matches the real deployed URL).
   home-screen icon on Android, right-click the taskbar icon on desktop) that
   opens the app and immediately resumes your most-recently-used bookmark —
   it just loads `./?action=resume-last`.
-- The running version shows in the footer (`v19`, …) and is logged to the
+- The running version shows in the footer (`v21`, …) and is logged to the
   console on load. On every load and every time the app returns to the
   foreground it fetches `js/version.js` from the network; if that's newer
   than the running build it shows an **"Update available"** banner whose
-  **Reload** button unregisters the service worker and reloads — a one-tap
-  escape from a stuck PWA cache (no more Settings → Clear storage). Bump
-  `APP_VERSION` in `js/version.js` **and** `CACHE_NAME` in `sw.js` together
-  on every deploy.
+  **Reload** button clears the caches, unregisters the service worker, and
+  reloads. Bump `APP_VERSION` in `js/version.js` **and** `CACHE_NAME` in
+  `sw.js` together on every deploy.
+- GitHub Pages serves shell files with `Cache-Control: max-age=600` and no
+  revalidation, so a plain `fetch()` (even from a "network-first" worker)
+  gets a 10-minute-stale copy. The service worker works around this: it
+  fetches every shell file with `cache: "no-cache"` (a conditional request —
+  cheap 304s, fresh 200s), `install` uses `cache: "reload"`, and it's
+  registered with `updateViaCache: "none"` so `sw.js` itself is never
+  HTTP-cached. Deploys made **before v21** don't have this and may still
+  need a manual close-and-reopen once to reach v21.
 - The Firestore security model is intentionally simple for a personal /
   small-allowlist app — see the comment block at the top of
   `js/firebaseBookmarks.js` before sharing this more widely.
