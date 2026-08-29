@@ -40,14 +40,14 @@ to copy from and a paste-to-import field.
 - **Files:** `js/firebaseBookmarks.js` (bulk read/write), `js/main.js`,
   `index.html`, `style.css`.
 
-### 6. Tap the whole bookmark row to Resume + small a11y pass
+### 6. Bigger Resume target + a11y pass — DONE
 
-Make the whole `.bookmark-item` a Resume target (not just the button), and:
-`aria-live="polite"` on the toast, `role="alert"` on the update banner,
-check the transport/seek controls announce sensibly.
-
-- **Size:** small.
-- **Files:** `js/main.js`, `index.html`, `style.css`.
+Dropped "tap the whole row" — a stray tap while scrolling the list would
+fire a disruptive, un-confirmable Resume. Instead: Resume is a full-width
+primary button, Remove a small underlined link below it. a11y: toast is a
+persistent `role="status" aria-live="polite"` region hidden via
+`.toast:empty`; update banner is `role="alert"`; the seek slider sets
+`aria-valuetext` ("1:23 of 3:45").
 
 ### 11. Podcast episode support
 

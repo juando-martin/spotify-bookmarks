@@ -416,25 +416,31 @@ button.link {
 
 .bookmark-actions {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
 }
 
-.bookmark-actions button {
-  flex: 1;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.9rem;
-}
-
+/* Resume is the primary action — a big, hard-to-miss target. Remove is a
+   small underlined link below it (and it has Undo), so a stray tap while
+   scrolling is unlikely and cheap. */
 .bookmark-actions .resume-btn {
+  width: 100%;
+  padding: 0.65rem;
+  font-size: 0.95rem;
   background: var(--accent);
   color: #06210f;
   font-weight: 600;
 }
 
 .bookmark-actions .remove-btn {
-  background: #2c2c2c;
-  color: var(--text);
+  align-self: flex-end;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8rem;
+  background: none;
+  color: var(--muted);
+  text-decoration: underline;
 }
 
 #bookmark-empty {
@@ -512,6 +518,11 @@ button.link {
   font-size: 0.9rem;
   max-width: calc(100% - 2rem);
   text-align: center;
+}
+
+/* Kept in the DOM as an aria-live region; shown only when it has a message. */
+.toast:empty {
+  display: none;
 }
 
 #app-footer {

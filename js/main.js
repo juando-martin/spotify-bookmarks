@@ -117,24 +117,29 @@ let lastTrackId = null;
 
 /**
  * Show a transient toast. Pass { actionLabel, onAction } for an inline
- * button (e.g. Undo); ms controls how long it stays up.
+ * button (e.g. Undo); ms controls how long it stays up. The element is an
+ * aria-live region and is hidden via `.toast:empty` (not the [hidden]
+ * attribute) so screen readers reliably announce each new message.
  */
-function showToast(message, { actionLabel, onAction, ms = 3500 } = {}) {
-  el.toast.textContent = message;
-  el.toast.hidden = false;
+function hideToast() {
   clearTimeout(showToast._t);
+  el.toast.textContent = "";
+}
+
+function showToast(message, { actionLabel, onAction, ms = 3500 } = {}) {
+  clearTimeout(showToast._t);
+  el.toast.textContent = message;
   if (actionLabel && onAction) {
     const btn = document.createElement("button");
     btn.className = "toast-action";
     btn.textContent = actionLabel;
     btn.addEventListener("click", () => {
-      clearTimeout(showToast._t);
-      el.toast.hidden = true;
+      hideToast();
       onAction();
     });
     el.toast.append(" ", btn);
   }
-  showToast._t = setTimeout(() => { el.toast.hidden = true; }, ms);
+  showToast._t = setTimeout(hideToast, ms);
 }
 
 function setBookmarkStatus(message, kind) {
@@ -171,6 +176,7 @@ function renderProgress() {
 
   const at = Math.min(Math.max(estimatedMs, 0), dur);
   el.seek.value = String(at);
+  el.seek.setAttribute("aria-valuetext", `${formatDuration(at)} of ${formatDuration(dur)}`);
   el.seekElapsed.textContent = formatDuration(at);
   const pct = dur ? (at / dur) * 100 : 0;
   el.seek.style.background =
@@ -731,8 +737,9 @@ async function init() {
   el.seek.addEventListener("input", () => {
     seekDragging = true;
     const ms = Number(el.seek.value);
-    el.seekElapsed.textContent = formatDuration(ms);
     const dur = currentSnapshot?.track?.durationMs || 1;
+    el.seekElapsed.textContent = formatDuration(ms);
+    el.seek.setAttribute("aria-valuetext", `${formatDuration(ms)} of ${formatDuration(dur)}`);
     el.seek.style.background =
       `linear-gradient(to right, var(--accent) ${(ms / dur) * 100}%, #3a3a3a ${(ms / dur) * 100}%)`;
   });
