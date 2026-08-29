@@ -9,10 +9,19 @@ const contextMetaCache = new Map();
 // Contexts that returned 404 this session (editorial playlists a dev-mode
 // app can't read) — don't re-ask them on every poll tick.
 const unreadableContexts = new Set();
+// cacheKey -> timestamp to retry after, for non-404 getContextMeta failures.
+const contextMetaCooldown = new Map();
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Spotify rate-limits per app on a rolling window. When we hit a 429, stop
+// making requests entirely until the window passes — retrying each call
+// individually just digs the hole deeper and freezes the whole app.
+let rateLimitedUntil = 0;
 
 async function apiFetch(path, options = {}, attempt = 0) {
+  if (Date.now() < rateLimitedUntil) {
+    return new Response(null, { status: 429, statusText: "Rate limited (backing off)" });
+  }
+
   const token = await getAccessToken();
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -29,14 +38,14 @@ async function apiFetch(path, options = {}, attempt = 0) {
     return apiFetch(path, options, attempt + 1);
   }
 
-  // Rate limited — Spotify's Retry-After header is in seconds. Wait it out
-  // (capped, so a poll can never hang for long) and retry a few times
-  // rather than hammering and digging the hole deeper.
-  if (res.status === 429 && attempt < 3) {
+  if (res.status === 429) {
+    // Don't retry — just note when it's safe to make requests again. Every
+    // apiFetch above short-circuits until then, so the poll loop effectively
+    // pauses instead of hammering.
     const retryAfter = Number(res.headers.get("Retry-After"));
-    const waitMs = Math.min(Number.isFinite(retryAfter) ? retryAfter : 2, 15) * 1000;
-    await sleep(waitMs);
-    return apiFetch(path, options, attempt + 1);
+    const waitS = Math.min(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 5, 60);
+    rateLimitedUntil = Date.now() + waitS * 1000;
+    console.warn(`Spotify rate limit — pausing requests for ${waitS}s`);
   }
 
   return res;
@@ -76,6 +85,9 @@ export async function getContextMeta(type, id) {
   if (unreadableContexts.has(cacheKey)) {
     return { name: null, imageUrl: null };
   }
+  if ((contextMetaCooldown.get(cacheKey) ?? 0) > Date.now()) {
+    return { name: null, imageUrl: null }; // failed recently — don't re-hit it yet
+  }
   const path =
     type === "playlist" ? `/playlists/${id}?fields=name,images` : `/albums/${id}`;
   const res = await apiFetch(path);
@@ -83,7 +95,13 @@ export async function getContextMeta(type, id) {
     unreadableContexts.add(cacheKey); // persistent — stop asking this session
     return { name: null, imageUrl: null };
   }
-  if (!res.ok) return { name: null, imageUrl: null }; // transient — retry next time
+  if (!res.ok) {
+    // 429 or a hiccup — back off this context for a while so a stuck poll
+    // loop doesn't re-request it every few seconds.
+    contextMetaCooldown.set(cacheKey, Date.now() + 10 * 60_000);
+    return { name: null, imageUrl: null };
+  }
+  contextMetaCooldown.delete(cacheKey);
   const data = await res.json();
   const meta = { name: data.name || null, imageUrl: smallestImageUrl(data.images) };
   if (meta.name || meta.imageUrl) contextMetaCache.set(cacheKey, meta);
