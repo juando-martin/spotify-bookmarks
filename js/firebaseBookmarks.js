@@ -2,7 +2,12 @@
 //
 // Data model: bookmarks/{spotifyUserId}/contexts/{contextKey}
 //   -> { contextType, contextId, contextUri, contextName, trackId,
-//        trackUri, trackName, artists, positionMs, updatedAt }
+//        trackUri, trackName, artists, positionMs, updatedAt, lastUsedAt }
+//
+// updatedAt  = when the saved track/position last changed (a save).
+// lastUsedAt = when the bookmark was last touched in any way — a save OR a
+//              Resume. The list is ordered by this, so the playlist/album
+//              you most recently interacted with floats to the top.
 //
 // A "context" is a playlist or an album. `contextKey` is `${type}_${id}`
 // (e.g. "playlist_37i9dQ...", "album_1DFixLW...") — the type prefix keeps
@@ -66,19 +71,34 @@ function contextDocRef(spotifyUserId, key) {
 export async function saveBookmark(spotifyUserId, bookmark) {
   await ensureReady();
   const key = contextKey(bookmark.contextType, bookmark.contextId);
+  const now = serverTimestamp();
   await setDoc(contextDocRef(spotifyUserId, key), {
     ...bookmark,
-    updatedAt: serverTimestamp(),
+    updatedAt: now,
+    lastUsedAt: now,
   });
 }
 
-/** All of this user's bookmarks, one per context, newest first. */
+/** Bump a bookmark's lastUsedAt without touching its saved position. */
+export async function touchBookmark(spotifyUserId, key) {
+  await ensureReady();
+  await setDoc(
+    contextDocRef(spotifyUserId, key),
+    { lastUsedAt: serverTimestamp() },
+    { merge: true },
+  );
+}
+
+const usedAtMillis = (bm) =>
+  bm.lastUsedAt?.toMillis?.() || bm.updatedAt?.toMillis?.() || 0;
+
+/** All of this user's bookmarks, one per context, most recently used first. */
 export async function listBookmarks(spotifyUserId) {
   await ensureReady();
   const snapshot = await getDocs(collection(db, "bookmarks", spotifyUserId, "contexts"));
   const bookmarks = [];
   snapshot.forEach((docSnap) => bookmarks.push({ id: docSnap.id, ...docSnap.data() }));
-  bookmarks.sort((a, b) => (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0));
+  bookmarks.sort((a, b) => usedAtMillis(b) - usedAtMillis(a));
   return bookmarks;
 }
 

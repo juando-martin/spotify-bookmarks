@@ -1,7 +1,7 @@
 import { POLL_INTERVAL_MS } from "./config.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
 import { getCurrentUser, getPlaybackState, getContextName, resumePlayback } from "./spotifyApi.js";
-import { saveBookmark, listBookmarks, removeBookmark, contextKey } from "./firebaseBookmarks.js";
+import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, contextKey } from "./firebaseBookmarks.js";
 
 const el = {
   loginView: document.getElementById("login-view"),
@@ -116,11 +116,12 @@ async function refreshBookmarkList() {
   for (const bm of bookmarks) {
     const li = document.createElement("li");
     li.className = "bookmark-item";
-    const updated = bm.updatedAt?.toDate ? bm.updatedAt.toDate().toLocaleString() : "";
+    const usedAt = bm.lastUsedAt ?? bm.updatedAt;
+    const used = usedAt?.toDate ? usedAt.toDate().toLocaleString() : "";
     li.innerHTML = `
       <div class="context-name">${escapeHtml(bm.contextName)}<span class="context-type">${escapeHtml(bm.contextType)}</span></div>
       <div class="track-line">${escapeHtml(bm.trackName)} — ${escapeHtml(bm.artists)}</div>
-      <div class="updated">Last updated ${escapeHtml(updated)}</div>
+      <div class="updated">Last used ${escapeHtml(used)}</div>
       <div class="bookmark-actions">
         <button class="resume-btn">Resume</button>
         <button class="remove-btn">Remove</button>
@@ -140,6 +141,13 @@ async function onResume(bookmark) {
       positionMs: bookmark.positionMs,
     });
     showToast(`Resumed ${bookmark.contextName} at ${bookmark.trackName}`);
+    // Resuming counts as "using" the bookmark — bump it to the top of the list.
+    try {
+      await touchBookmark(spotifyUserId, bookmark.id);
+      await refreshBookmarkList();
+    } catch (err) {
+      console.error("Failed to bump lastUsedAt:", err);
+    }
     // Give Spotify a moment to update state, then refresh the display.
     setTimeout(pollOnce, 1500);
   } catch (err) {

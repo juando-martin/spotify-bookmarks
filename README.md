@@ -119,6 +119,9 @@ Redirect URI matches the real deployed URL).
   album overwrites its previous bookmark in place. A playlist and an album
   are always separate bookmarks even in the unlikely event their IDs match
   (the stored key is prefixed with the type).
+- The bookmark list is ordered most-recently-used first, where "used" means
+  either saved (manual or auto) or resumed. Bookmarks created before this
+  ordering existed fall back to their save time.
 - Auto-bookmark-on-switch works by polling playback state on an interval, so
   the saved position can be up to one interval behind the actual switch
   moment. The **Settings** card in the app has:
