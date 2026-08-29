@@ -35,6 +35,9 @@ const el = {
   deviceCancel: document.getElementById("device-cancel"),
   autoBookmarkToggle: document.getElementById("auto-bookmark-toggle"),
   pollIntervalSelect: document.getElementById("poll-interval-select"),
+  updateBanner: document.getElementById("update-banner"),
+  updateVersion: document.getElementById("update-version"),
+  updateReload: document.getElementById("update-reload"),
   toast: document.getElementById("toast"),
 };
 
@@ -80,6 +83,7 @@ let currentSnapshot = null; // latest playback snapshot (may have no resumable c
 let lastContextSnapshot = null; // last snapshot seen WHILE inside a playlist/album context
 let pollHandle = null;
 let pendingRemoval = null; // { bookmark, timer } — a Remove awaiting its Undo grace period
+let updateReady = false; // a newer build is on the network; the banner is shown
 
 // Bookmark id -> local timestamp of the last save/resume from this tab.
 // Firestore's serverTimestamp can lag a beat on read-back, so we sort (and
@@ -509,12 +513,43 @@ function stopPolling() {
 }
 
 function handleVisibilityChange() {
-  if (KEEP_POLLING_WHEN_HIDDEN || !isLoggedIn()) return;
   if (document.hidden) {
-    stopPolling();
-  } else {
-    startPolling(); // fires an immediate catch-up poll
+    if (!KEEP_POLLING_WHEN_HIDDEN && isLoggedIn()) stopPolling();
+    return;
   }
+  checkForUpdate(); // re-check whenever the app comes back to the foreground
+  if (KEEP_POLLING_WHEN_HIDDEN || !isLoggedIn()) return;
+  startPolling(); // fires an immediate catch-up poll
+}
+
+// The service worker is network-first, but an installed PWA can keep running
+// an old build until it's fully relaunched. Compare the running APP_VERSION
+// with the one on the network and offer a one-tap reload if they differ.
+async function checkForUpdate() {
+  if (updateReady) return;
+  try {
+    const res = await fetch("js/version.js", { cache: "no-store" });
+    if (!res.ok) return;
+    const match = (await res.text()).match(/APP_VERSION\s*=\s*["']([^"']+)["']/);
+    if (match && match[1] !== APP_VERSION) {
+      updateReady = true;
+      el.updateVersion.textContent = ` (v${match[1]})`;
+      el.updateBanner.hidden = false;
+    }
+  } catch {
+    /* offline or blocked — nothing to do */
+  }
+}
+
+async function applyUpdate() {
+  el.updateReload.disabled = true;
+  try {
+    const regs = (await navigator.serviceWorker?.getRegistrations?.()) ?? [];
+    await Promise.all(regs.map((r) => r.unregister()));
+  } catch {
+    /* ignore — reload below still helps */
+  }
+  location.reload();
 }
 
 async function enterApp() {
@@ -557,6 +592,9 @@ async function init() {
   const versionEl = document.getElementById("app-version");
   if (versionEl) versionEl.textContent = `v${APP_VERSION}`;
   console.info(`Playlist Resume v${APP_VERSION}`);
+
+  el.updateReload.addEventListener("click", applyUpdate);
+  checkForUpdate();
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch((err) => console.error("SW registration failed:", err));
