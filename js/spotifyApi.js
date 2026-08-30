@@ -171,12 +171,16 @@ export async function getContextMeta(type, id) {
     return { name: null, imageUrl: null };
   }
   if (!res.ok) {
-    // A real hiccup (not a 429 — that's the global backoff's job, and it's
-    // not this context's fault) — back it off so a stuck poll loop doesn't
-    // re-request it every few seconds.
-    if (res.status !== 429) {
-      contextMetaCooldown.set(cacheKey, Date.now() + 10 * 60_000);
-    }
+    // Back this context off so a stuck poll loop doesn't re-request it every
+    // few seconds. 429 gets the *longer* cooldown, not a pass: the global
+    // backoff is only ~60s, and if just this endpoint is limited (playback
+    // state still flows) we'd otherwise poke this one playlist once a minute
+    // forever, each poke re-arming Spotify's penalty. The name is worth far
+    // less than getting unstuck — the card falls back to "In a playlist".
+    contextMetaCooldown.set(
+      cacheKey,
+      Date.now() + (res.status === 429 ? 15 * 60_000 : 10 * 60_000),
+    );
     return { name: null, imageUrl: null };
   }
   contextMetaCooldown.delete(cacheKey);
