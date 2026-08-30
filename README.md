@@ -18,9 +18,13 @@ it's a normal `git push` to deploy.
   were, automatically (toggle in Settings).
 - **Now playing card** — album art, track / album / playlist name, and
   **⏮ / ⏯ / ⏭** transport controls for the active device.
-- **Bookmark list** — album-art thumbnail, saved position ("resumes at
+- **Bookmark list** — cover-art thumbnail, saved position ("resumes at
   2:34"), last-used relative time, ordered most-recently-used first, with a
   filter box (matches name / track / artist).
+- **Playlist tiles** — a playlist Spotify won't give the app artwork for
+  (its editorial mixes, or a bare playlist) gets a tile drawn from its name.
+  Six styles in Settings, plus "Song art" and "Blank"; optionally replace
+  every playlist's cover with it.
 - **List tools** (off by default — see the `listtools` flag below): a
   **Find a playlist or album** search box, and **Pick a track** on any
   bookmark to play a different song from its playlist/album.
@@ -205,14 +209,14 @@ Redirect URI matches the real deployed URL).
   playlist it's one extra `GET /playlists/{id}`, made **only when a bookmark
   is first saved** (or re-saved while it still lacks a real name or cover) —
   never on the poll loop, and skipped entirely once the name and cover are
-  stored. When Spotify confirms a playlist has no cover we can read (an
-  editorial playlist), the thumbnail instead follows the **currently
-  bookmarked track's** album art — it refreshes on each save/auto-/
-  follow-bookmark, so it moves with the bookmark rather than freezing on the
-  first song. A lookup that merely failed (429, offline) keeps the stored
-  image. The Now playing card still shows the current *track's* art, not the
-  cover. Bookmarks saved before this show whatever they stored until
-  re-saved.
+  stored. When Spotify confirms a playlist has no cover it can read (an
+  editorial mix, or a playlist with no art of its own), the bookmark stores
+  `imageUrl: null` and the list draws a **generated tile** instead — what
+  that looks like is the *Playlist tile* setting below. Each bookmark also
+  stores `trackImageUrl` (the saved track's own art, always) to feed the
+  "Song art" tile. The Now playing card still shows the current *track's*
+  art, not the cover. Bookmarks saved before a change keep whatever they
+  stored until re-saved.
 - The poll loop is deliberately just `GET /me/player`. A playlist's name
   isn't in that payload, so the Now playing card takes the name from the
   matching bookmark (`customName` / `contextName`); a playlist you're
@@ -228,8 +232,9 @@ Redirect URI matches the real deployed URL).
   Daily Mix, Release Radar, artist/mood Mixes, …) can't be read via the Web
   API for Development-Mode apps, so their name won't resolve — the bookmark
   shows "Unknown playlist" and the Now playing card shows "In a playlist",
-  and the thumbnail follows the bookmarked track's art (see above).
-  Bookmarking and resuming still work; rename it (✎) to give it a name.
+  and the thumbnail is drawn as a generated tile (or whatever the Playlist
+  tile setting says). Bookmarking and resuming still work; rename it (✎) to
+  give it a name.
 - Every bookmark has a **✎ rename** control next to its name. The custom
   name is stored per bookmark (`customName`), shown instead of Spotify's
   (clear the field to fall back), and survives re-saves and auto-bookmarks.
@@ -265,7 +270,17 @@ Redirect URI matches the real deployed URL).
   - **Check Spotify every** 3–60 s — lower is tighter precision at the cost
     of more API calls. Auto-bookmark-on-switch can be up to one interval
     behind the actual moment.
-  All three are stored per-device in `localStorage`; `POLL_INTERVAL_MS` in
+  - **Playlist tile** — what to show for a playlist with no cover of its
+    own. A *style*: six generated tiles (**Flat, Gradient, Aurora,
+    Equalizer, Risograph, Hairline** — drawn from the playlist's id for the
+    colour/shape and its name for a 1–2 letter monogram, so the same
+    playlist always looks the same on every device), or **Song art** (the
+    saved track's album art) or **Blank** (an empty tile). And *when*:
+    **only where there's no cover** (default), or **always**, replacing
+    Spotify's cover too. Albums always keep their real art. It's all decided
+    at render time — changing it just repaints the list, nothing is stored
+    per bookmark. (Studied in the "Playlist Tile Studio" design page.)
+  All four are stored per-device in `localStorage`; `POLL_INTERVAL_MS` in
   `js/config.js` is only the pre-touch default for the interval.
 - Polling only runs **while the app is the visible tab**. It's paused on
   `visibilitychange` when hidden and does one immediate catch-up poll when
@@ -298,8 +313,11 @@ Redirect URI matches the real deployed URL).
   from another's — see the comment block at the top of
   `js/firebaseBookmarks.js`. The `create` / `update` rules do validate shape
   and size (known fields only, string length caps, `positionMs` range) so an
-  allowlisted account can't write junk or oversized documents. **Re-paste
-  `firestore.rules` and Publish** after pulling a change to that file.
+  allowlisted account can't write junk or oversized documents. Because the
+  rules whitelist the exact bookmark fields, **a client change that adds a
+  field needs `firestore.rules` re-pasted and Published first** — otherwise
+  every save fails with `Missing or insufficient permissions`. Re-publish
+  whenever you pull a change to that file.
 - Firestore runs with a **persistent local cache** (IndexedDB). Bookmark
   writes queue and retry through connectivity blips, and the list loads from
   cache first, then revalidates. Falls back to memory-only where IndexedDB
@@ -320,7 +338,8 @@ js/config.js              YOUR Spotify + Firebase config (fill in per steps abov
 js/pkce.js                PKCE code_verifier/code_challenge helpers
 js/auth.js                Spotify OAuth login/redirect/token refresh (shared single-flight)
 js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, transport, devices, playlist/album meta; 429 backoff)
-js/format.js              Pure helpers: formatting + playback-state normalization (unit-tested)
+js/format.js              Pure helpers: formatting, playback-state normalization, tile monogram + hash, 429 wait math (unit-tested)
+js/tiles.js               Generated placeholder cover tiles — canvas → data URL, six styles
 js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist/album per user)
 js/version.js             APP_VERSION string — bump with sw.js CACHE_NAME each deploy
 js/main.js                Wires it all together: UI, polling loop, auto-bookmark
@@ -331,8 +350,8 @@ icons/                    App icons for the PWA manifest
 ## Development
 
 No build step — it's plain ES modules served as files. To run the unit tests
-(they cover `js/format.js`: formatting helpers, `normalizePlaybackState`,
-the bookmark sort key):
+(they cover `js/format.js`: formatting helpers, `normalizePlaybackState`, the
+bookmark sort key, the 429 back-off math, the tile monogram):
 
 ```bash
 npm test        # == node --test  (needs Node 18+, no dependencies)
