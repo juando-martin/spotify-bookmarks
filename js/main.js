@@ -834,7 +834,10 @@ async function pollOnce() {
   // can reset. The interval keeps firing; these ticks just no-op.
   if (rateLimitedForMs() > 0) {
     if (Date.now() - rateLimitToastAt > 60_000) {
-      showToast("Spotify is rate-limiting the app — it'll recover on its own.");
+      const mins = Math.ceil(rateLimitedForMs() / 60_000);
+      showToast(
+        `Spotify is rate-limiting the app — holding off ${mins > 1 ? `~${mins} min` : "a moment"} so it can recover.`,
+      );
       rateLimitToastAt = Date.now();
     }
     return;

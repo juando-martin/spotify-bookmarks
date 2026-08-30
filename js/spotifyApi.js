@@ -15,7 +15,30 @@ const contextMetaCooldown = new Map();
 // Spotify rate-limits per app on a rolling window. When we hit a 429, stop
 // making requests entirely until the window passes — retrying each call
 // individually just digs the hole deeper and freezes the whole app.
+//
+// The deadline is persisted: a reload (or a service-worker update) would
+// otherwise reset it to 0 and immediately fire a poll straight into the
+// penalty window, which keeps the app flagged and the window from ever
+// resetting. This is what turned a brief 429 into a multi-hour lockout.
+const RATE_LIMIT_KEY = "myspot:rateLimitedUntil";
+
 let rateLimitedUntil = 0;
+try {
+  const stored = Number(localStorage.getItem(RATE_LIMIT_KEY));
+  if (Number.isFinite(stored) && stored > Date.now()) rateLimitedUntil = stored;
+} catch {
+  /* private mode / storage disabled — in-memory only */
+}
+
+function setRateLimitedUntil(ts) {
+  rateLimitedUntil = ts;
+  try {
+    if (ts > Date.now()) localStorage.setItem(RATE_LIMIT_KEY, String(ts));
+    else localStorage.removeItem(RATE_LIMIT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 /** Milliseconds until it's safe to hit the API again (0 when clear). */
 export const rateLimitedForMs = () => Math.max(0, rateLimitedUntil - Date.now());
@@ -44,11 +67,17 @@ async function apiFetch(path, options = {}, attempt = 0) {
   if (res.status === 429) {
     // Don't retry — just note when it's safe to make requests again. Every
     // apiFetch above short-circuits until then, so the poll loop pauses
-    // instead of hammering. Minimum 20s so Spotify's rolling window can
-    // actually reset (a poll every 5s would keep it pinned open).
+    // instead of hammering.
+    //
+    // Honour Spotify's Retry-After in full when it sends one. For a badly
+    // rate-limited app that can be many minutes to an hour; poking the API
+    // again before it's up just resets that clock, which is how the app
+    // stayed locked out for hours. Floor 30s (a header of "1" isn't worth
+    // obeying at a 5s poll), ceiling 1h (sanity bound).
     const retryAfter = Number(res.headers.get("Retry-After"));
-    const waitS = Math.min(Math.max(Number.isFinite(retryAfter) ? retryAfter : 0, 20), 120);
-    rateLimitedUntil = Date.now() + waitS * 1000;
+    const asked = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60;
+    const waitS = Math.min(Math.max(asked, 30), 3600);
+    setRateLimitedUntil(Date.now() + waitS * 1000);
     console.warn(`Spotify rate limit — pausing all requests for ${waitS}s`);
   }
 

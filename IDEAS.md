@@ -82,6 +82,17 @@ Original backlog #1–#12, plus everything added along the way:
   also cools a failing context down (404 for the session, other errors for
   10 min). A toast explains the pause, ≤ once a minute.
   `rateLimitedForMs()` exported for the poll check.
+- **Rate-limit lockout, part 2** — a brief 429 was turning into a
+  multi-hour lockout. Two causes: (a) the backoff was capped at 120 s,
+  so a long `Retry-After` (Spotify sends minutes-to-an-hour for a
+  badly-limited app) was ignored and we'd poke the API again
+  mid-penalty, resetting its clock; (b) `rateLimitedUntil` was
+  in-memory only, so every reload — including the ones done to "check
+  the new version" — reset it to 0 and fired a poll straight into the
+  penalty window. Now: honour `Retry-After` in full (floor 30 s,
+  ceiling 1 h), and persist the deadline in `localStorage`
+  (`myspot:rateLimitedUntil`) so a reload or SW update still waits it
+  out. Toast shows the rough hold time.
 
 ## Left
 
