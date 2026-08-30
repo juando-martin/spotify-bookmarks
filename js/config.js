@@ -9,7 +9,7 @@
 
 export const SPOTIFY_CONFIG = {
   // From developer.spotify.com/dashboard -> your app -> Client ID
-  clientId: "53c3a5a987b74363a2c18beff257a65f",
+  clientId: "4200a9cd06554ab98c15a4b094a2fb66",
 
   // Must exactly match a Redirect URI registered on the Spotify app.
   // Once deployed to GitHub Pages this will look like:
