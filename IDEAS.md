@@ -62,9 +62,26 @@ Original backlog #1–#12, plus everything added along the way:
   icon.svg -resize NxN …`). Picked from a 5-concept comparison page.
 - **"Pick a track"** — a per-bookmark toggle expands the playlist/album
   tracklist inline (`getContextTracks()` in `spotifyApi.js`, capped
-  100/50); tapping a track plays it in that context from 0:00. `expandedId`
-  + an `expandedTracks` cache in `main.js` survive list re-renders.
-  Editorial playlists 404 -> a "can't load" message.
+  100/50, no nested `fields=` param, `spotify:local:` items skipped);
+  tapping a track plays it in that context from 0:00. `expandedId` + an
+  `expandedTracks` cache in `main.js` survive list re-renders. Returns
+  `{ forbidden: true }` for a real 404 (editorial playlist) vs `null` for a
+  transient error, so the message is accurate and a transient failure can
+  be retried.
+- **Open a bookmark in Spotify** — the 52px cover-art tile is an `<a>` to
+  `spotifyWebUrl(contextUri)` (`open.spotify.com/<kind>/<id>`), with a green
+  ↗ badge, `target="_blank" rel="noopener"`, an `aria-label`, and a
+  focus-visible outline. Phone → the Spotify app; desktop → the web player.
+  The get-out for editorial playlists "Pick a track" can't enumerate.
+- **Rate-limit recovery** — the app was death-spiralling on a 429: pre-fix
+  `apiFetch` retried a doomed request 3× per 5s poll and *kept retrying
+  through the 429s*, which makes Spotify extend the ban. Now: a 429 sets
+  `rateLimitedUntil` (≥ 20s, ≤ 120s) and there's **no retry**; every
+  `apiFetch` short-circuits and `pollOnce()` no-ops entirely while it's
+  set, so the app goes silent and Spotify's window resets. `getContextMeta`
+  also cools a failing context down (404 for the session, other errors for
+  10 min). A toast explains the pause, ≤ once a minute.
+  `rateLimitedForMs()` exported for the poll check.
 
 ## Left
 
