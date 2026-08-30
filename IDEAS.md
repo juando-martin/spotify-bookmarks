@@ -82,6 +82,23 @@ Original backlog #1–#12, plus everything added along the way:
   also cools a failing context down (404 for the session, other errors for
   10 min). A toast explains the pause, ≤ once a minute.
   `rateLimitedForMs()` exported for the poll check.
+- **Cut the poll loop down to `/me/player`** — the Now playing card was
+  spending one `/playlists/{id}` request *every poll tick* to resolve a
+  playlist's name (playlists don't carry it in `/me/player`). That was the
+  bulk of steady-state traffic and the exact call that kept returning 429.
+  Removed: the name now comes from the bookmark (`customName` /
+  `contextName`), and a playlist you haven't bookmarked just shows "In a
+  playlist". `buildBookmarkFromSnapshot` still does one `/playlists/{id}`
+  per *new* playlist bookmark, but skips it once a real name + cover are
+  stored, so auto-/follow-bookmark stop re-hitting it. Steady state is now
+  just `GET /me/player` per interval.
+- **Catalogue search + "Pick a track" behind a hidden flag** — both hit
+  low-quota endpoints (`/search`, `/playlists/{id}/tracks`) in bursts and
+  are the easiest way to trip Spotify's abuse detection on a dev-mode app.
+  The code and tests are untouched; only the UI that reaches them is gated
+  on `LIST_TOOLS_ENABLED` (off by default; `?listtools=1` for a session or
+  `localStorage["myspot:listTools"]="1"` to persist). The cover-art tile
+  still deep-links into Spotify regardless.
 - **Rate-limit lockout, part 2** — a brief 429 was turning into a
   multi-hour lockout. Two causes: (a) the backoff was capped at 120 s,
   so a long `Retry-After` (Spotify sends minutes-to-an-hour for a

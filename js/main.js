@@ -104,6 +104,23 @@ const KEEP_POLLING_WHEN_HIDDEN = new URLSearchParams(location.search).has("backg
 // PWA shortcut intent — read before anything rewrites the URL.
 const shortcutAction = new URLSearchParams(location.search).get("action");
 
+// Hidden flag — the catalogue search and the inline "Pick a track" list both
+// hit endpoints (/search, /playlists/{id}/tracks) that burn through a
+// Development-Mode app's small rate-limit budget in bursts. Off by default.
+// Turn on for a session with  ?listtools=1  in the URL, or persist it with
+//   localStorage.setItem("myspot:listTools", "1")
+// in the browser console (use "0" to hide them again). The code for both
+// features is left intact — only the UI that reaches them is gated.
+const LIST_TOOLS_ENABLED = (() => {
+  try {
+    const flag = new URLSearchParams(location.search).get("listtools");
+    if (flag === "1" || flag === "0") localStorage.setItem("myspot:listTools", flag);
+    return localStorage.getItem("myspot:listTools") === "1";
+  } catch {
+    return false;
+  }
+})();
+
 let spotifyUserId = null;
 let currentSnapshot = null; // latest playback snapshot (may have no resumable context)
 let lastContextSnapshot = null; // last snapshot seen WHILE inside a playlist/album context
@@ -236,10 +253,10 @@ function renderNowPlaying() {
   if (!context) {
     metaLines.push("Not in a playlist or album context");
   } else if (context.type === "playlist") {
-    // Prefer the name you gave the matching bookmark (Spotify's API won't
-    // name an editorial "Mix"), then Spotify's live name, then whatever
-    // name we last stored for this bookmark — so a rate-limited or failing
-    // name lookup still shows something for a playlist you've bookmarked.
+    // A playlist's name isn't in the /me/player payload and we no longer
+    // spend a poll-loop request to look it up. Use the name you gave the
+    // matching bookmark, else the name stored on it when it was saved; a
+    // playlist you haven't bookmarked just shows "In a playlist".
     const key = contextKey(context.type, context.id);
     const name =
       customNameByContext.get(key) ||
@@ -277,17 +294,26 @@ async function buildBookmarkFromSnapshot(snapshot) {
   const key = contextKey(type, id);
 
   // The bookmark's thumbnail is the playlist/album *cover*. For an album the
-  // playing track's art is already that cover. For a playlist, fetch it
-  // (cached). If the lookup fails (rate-limited, editorial playlist), keep
-  // whatever this bookmark already had rather than overwriting it.
+  // playing track's art is already that cover. For a playlist we need one
+  // /playlists/{id} request — but only the first time: once a bookmark has a
+  // real name and a cover stored, reuse them instead of re-hitting the API
+  // on every auto-/follow-bookmark. (Editorial playlists never resolve a
+  // cover anyway, so those keep the track art fallback below.)
   let contextName = name;
   let coverUrl = null;
   if (type === "album") {
     coverUrl = snapshot.track.imageUrl ?? null;
   } else {
-    const meta = await getContextMeta(type, id);
-    contextName = contextName ?? meta.name ?? storedBookmarkField(key, "contextName");
-    coverUrl = meta.imageUrl ?? storedBookmarkField(key, "imageUrl");
+    const storedName = storedBookmarkField(key, "contextName");
+    const storedCover = storedBookmarkField(key, "imageUrl");
+    if (storedName && storedCover) {
+      contextName = contextName ?? storedName;
+      coverUrl = storedCover;
+    } else {
+      const meta = await getContextMeta(type, id);
+      contextName = contextName ?? meta.name ?? storedName;
+      coverUrl = meta.imageUrl ?? storedCover;
+    }
   }
 
   return {
@@ -375,7 +401,7 @@ function renderBookmarks() {
       <div class="bookmark-actions">
         <button class="resume-btn">Resume</button>
         <div class="bookmark-subactions">
-          <button class="tracks-btn" aria-expanded="${expanded}">${expanded ? "Hide tracks" : "Pick a track"}</button>
+          ${LIST_TOOLS_ENABLED ? `<button class="tracks-btn" aria-expanded="${expanded}">${expanded ? "Hide tracks" : "Pick a track"}</button>` : ""}
           <button class="remove-btn">Remove</button>
         </div>
       </div>
@@ -384,7 +410,7 @@ function renderBookmarks() {
     li.querySelector(".resume-btn").addEventListener("click", () => onResume(bm));
     li.querySelector(".remove-btn").addEventListener("click", () => onRemove(bm, li));
     li.querySelector(".rename-btn").addEventListener("click", () => startRename(bm, li));
-    li.querySelector(".tracks-btn").addEventListener("click", () => toggleTracks(bm));
+    li.querySelector(".tracks-btn")?.addEventListener("click", () => toggleTracks(bm));
     if (expanded) renderTracksInto(li.querySelector(".tracklist"), bm);
     el.bookmarkList.appendChild(li);
   }
@@ -908,19 +934,10 @@ async function runPoll() {
   lastContextSnapshot = snapshot?.context ? snapshot : null;
   if (!seekDragging) estimatedMs = snapshot?.progressMs ?? 0; // resync the progress bar
 
-  // Resolve the Spotify name for the Now playing card (albums already carry
-  // it; playlists need one API lookup, cached in memory). renderNowPlaying
-  // layers your custom bookmark name on top of this.
-  if (snapshot?.context && !snapshot.context.name) {
-    try {
-      snapshot.context.name = (
-        await getContextMeta(snapshot.context.type, snapshot.context.id)
-      ).name;
-    } catch {
-      /* leave name null — the card falls back to "In a playlist" */
-    }
-  }
-
+  // No per-tick /playlists lookup for the name any more — that one request,
+  // fired every poll for any playlist without a stored name, was the bulk of
+  // the app's steady-state API traffic and the call that kept 429-ing.
+  // renderNowPlaying() falls back to the bookmarked name (or "In a playlist").
   renderNowPlaying();
 }
 
@@ -1091,19 +1108,32 @@ async function init() {
   });
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
-  // Strip the one-shot shortcut param so a manual reload doesn't re-fire it.
-  if (shortcutAction) {
+  // Strip one-shot query params so a manual reload doesn't re-fire them
+  // (the shortcut action, and the ?listtools flag once it's been persisted).
+  {
     const params = new URLSearchParams(location.search);
-    params.delete("action");
-    const qs = params.toString();
-    history.replaceState({}, "", location.pathname + (qs ? `?${qs}` : "") + location.hash);
+    let changed = false;
+    for (const k of ["action", "listtools"]) {
+      if (params.has(k)) {
+        params.delete(k);
+        changed = true;
+      }
+    }
+    if (changed) {
+      const qs = params.toString();
+      history.replaceState({}, "", location.pathname + (qs ? `?${qs}` : "") + location.hash);
+    }
   }
 
   // Foldable <details> cards remember their open state per device.
   setupFoldable(el.settingsCard, document.getElementById("fold-caret"), "playlist-resume-settings-open");
-  setupFoldable(el.searchCard, document.getElementById("search-caret"), "playlist-resume-search-open");
-  el.searchInput.addEventListener("input", onSearchInput);
-  el.searchInput.addEventListener("search", onSearchInput); // "x" clear button
+  if (LIST_TOOLS_ENABLED) {
+    setupFoldable(el.searchCard, document.getElementById("search-caret"), "playlist-resume-search-open");
+    el.searchInput.addEventListener("input", onSearchInput);
+    el.searchInput.addEventListener("search", onSearchInput); // "x" clear button
+  } else {
+    el.searchCard.hidden = true;
+  }
 
   el.autoBookmarkToggle.checked = settings.autoBookmark;
   el.autoBookmarkToggle.addEventListener("change", () => {
