@@ -336,9 +336,13 @@ function renderBookmarks() {
     if (Number.isFinite(bm.positionMs)) detail.push(`resumes at ${formatDuration(bm.positionMs)}`);
     if (usedDate) detail.push(`used ${formatRelative(usedDate)}`);
 
-    const art = bm.imageUrl
+    const artInner = bm.imageUrl
       ? `<img class="bookmark-art" src="${escapeHtml(bm.imageUrl)}" alt="" width="52" height="52" loading="lazy" />`
       : `<div class="bookmark-art bookmark-art-empty" aria-hidden="true"></div>`;
+    const art =
+      `<a class="art-link" href="${escapeHtml(spotifyWebUrl(bm.contextUri))}" target="_blank" rel="noopener"` +
+      ` title="Open in Spotify" aria-label="Open ${escapeHtml(bookmarkName(bm))} in Spotify">` +
+      `${artInner}<span class="art-badge" aria-hidden="true">↗</span></a>`;
     const expanded = bm.id === expandedId;
     li.innerHTML = `
       <div class="bookmark-main">

@@ -154,6 +154,10 @@ Redirect URI matches the real deployed URL).
   device (`context_uri` with `offset: { position: 0 }`) — same
   needs-a-device caveat as Resume. It doesn't create a bookmark; once it's
   playing, "Bookmark this spot" does.
+- A bookmark's **cover art is a link** (green ↗ badge) to
+  `open.spotify.com/<kind>/<id>` — on a phone that opens the Spotify app on
+  that playlist/album; on desktop it opens the web player in a new tab.
+  Handy for editorial playlists "Pick a track" can't list.
 - The Now playing card has **⏮ / ⏯ / ⏭** transport buttons and a **seek
   bar** (shown only when something's on a device). They control whatever
   device is active — same "needs an active device" caveat as Resume.
