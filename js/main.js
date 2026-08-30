@@ -237,9 +237,14 @@ function renderNowPlaying() {
     metaLines.push("Not in a playlist or album context");
   } else if (context.type === "playlist") {
     // Prefer the name you gave the matching bookmark (Spotify's API won't
-    // name an editorial "Mix"), then Spotify's own name.
+    // name an editorial "Mix"), then Spotify's live name, then whatever
+    // name we last stored for this bookmark — so a rate-limited or failing
+    // name lookup still shows something for a playlist you've bookmarked.
     const key = contextKey(context.type, context.id);
-    const name = customNameByContext.get(key) || context.name;
+    const name =
+      customNameByContext.get(key) ||
+      context.name ||
+      storedBookmarkField(key, "contextName");
     metaLines.push(name ? `Playlist · ${escapeHtml(name)}` : "In a playlist");
   }
   // An album context adds nothing — the "Album ·" line above already names it.
