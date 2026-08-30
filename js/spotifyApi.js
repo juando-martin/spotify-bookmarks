@@ -40,6 +40,11 @@ function setRateLimitedUntil(ts) {
   }
 }
 
+// Consecutive 429s with no successful call in between. Spotify ratchets a
+// misbehaving app's penalty up the longer it keeps seeing traffic, so we
+// ratchet our own wait up to match — each 429 in a row doubles the floor.
+let rateLimitStreak = 0;
+
 /** Milliseconds until it's safe to hit the API again (0 when clear). */
 export const rateLimitedForMs = () => Math.max(0, rateLimitedUntil - Date.now());
 
@@ -57,6 +62,12 @@ async function apiFetch(path, options = {}, attempt = 0) {
     },
   });
 
+  if (res.ok && rateLimitStreak > 0) {
+    // Back in business — drop the escalation and clear any stale deadline.
+    rateLimitStreak = 0;
+    setRateLimitedUntil(0);
+  }
+
   if (res.status === 401 && attempt === 0) {
     // Token rejected — force a refresh (not just a re-read of the cached
     // one, which the 30s expiry margin would otherwise hand back) and retry.
@@ -72,11 +83,17 @@ async function apiFetch(path, options = {}, attempt = 0) {
     // Honour Spotify's Retry-After in full when it sends one. For a badly
     // rate-limited app that can be many minutes to an hour; poking the API
     // again before it's up just resets that clock, which is how the app
-    // stayed locked out for hours. Floor 30s (a header of "1" isn't worth
-    // obeying at a 5s poll), ceiling 1h (sanity bound).
+    // stayed locked out for hours.
+    //
+    // On top of that, escalate: each 429 in a row doubles the floor
+    // (1m, 2m, 4m … capped at 1h) so a persistent penalty makes the app
+    // go quieter and quieter instead of probing every couple of minutes.
+    // A single clean response resets the streak.
+    rateLimitStreak += 1;
     const retryAfter = Number(res.headers.get("Retry-After"));
-    const asked = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60;
-    const waitS = Math.min(Math.max(asked, 30), 3600);
+    const asked = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 0;
+    const escalated = 60 * 2 ** Math.min(rateLimitStreak - 1, 6); // 60s … 3840s
+    const waitS = Math.min(Math.max(asked, escalated, 30), 3600);
     setRateLimitedUntil(Date.now() + waitS * 1000);
     console.warn(`Spotify rate limit — pausing all requests for ${waitS}s`);
   }
