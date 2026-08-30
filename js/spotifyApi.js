@@ -40,16 +40,29 @@ function setRateLimitedUntil(ts) {
   }
 }
 
+// The effective deadline: the later of this context's value and whatever
+// another tab has persisted. Reading storage on every check (not just at
+// load) means a 429 in one tab pauses every other open tab too.
+function rateLimitDeadline() {
+  try {
+    const stored = Number(localStorage.getItem(RATE_LIMIT_KEY));
+    if (Number.isFinite(stored) && stored > rateLimitedUntil) rateLimitedUntil = stored;
+  } catch {
+    /* ignore */
+  }
+  return rateLimitedUntil;
+}
+
 // Consecutive 429s with no successful call in between. Spotify ratchets a
 // misbehaving app's penalty up the longer it keeps seeing traffic, so we
 // ratchet our own wait up to match — each 429 in a row doubles the floor.
 let rateLimitStreak = 0;
 
 /** Milliseconds until it's safe to hit the API again (0 when clear). */
-export const rateLimitedForMs = () => Math.max(0, rateLimitedUntil - Date.now());
+export const rateLimitedForMs = () => Math.max(0, rateLimitDeadline() - Date.now());
 
 async function apiFetch(path, options = {}, attempt = 0) {
-  if (Date.now() < rateLimitedUntil) {
+  if (Date.now() < rateLimitDeadline()) {
     return new Response(null, { status: 429, statusText: "Rate limited (backing off)" });
   }
 
@@ -62,10 +75,12 @@ async function apiFetch(path, options = {}, attempt = 0) {
     },
   });
 
-  if (res.ok && rateLimitStreak > 0) {
-    // Back in business — drop the escalation and clear any stale deadline.
+  if (res.ok) {
+    // Back in business — drop the escalation. Only clear the deadline if it
+    // has already elapsed: a request that raced ahead of a 429 response
+    // must not wipe a backoff we just deliberately set.
     rateLimitStreak = 0;
-    setRateLimitedUntil(0);
+    if (rateLimitedUntil && rateLimitedUntil <= Date.now()) setRateLimitedUntil(0);
   }
 
   if (res.status === 401 && attempt === 0) {
@@ -86,14 +101,17 @@ async function apiFetch(path, options = {}, attempt = 0) {
     // stayed locked out for hours.
     //
     // On top of that, escalate: each 429 in a row doubles the floor
-    // (1m, 2m, 4m … capped at 1h) so a persistent penalty makes the app
+    // (1m, 2m, 4m … capped at ~64m) so a persistent penalty makes the app
     // go quieter and quieter instead of probing every couple of minutes.
     // A single clean response resets the streak.
     rateLimitStreak += 1;
     const retryAfter = Number(res.headers.get("Retry-After"));
-    const asked = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 0;
+    // Honour Retry-After in full — no upper clamp beyond a 24h sanity bound
+    // against a malformed header. Cutting it short is what kept re-arming
+    // the penalty. The escalation and a 30s floor can only lengthen it.
+    const asked = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 86400) : 0;
     const escalated = 60 * 2 ** Math.min(rateLimitStreak - 1, 6); // 60s … 3840s
-    const waitS = Math.min(Math.max(asked, escalated, 30), 3600);
+    const waitS = Math.max(asked, escalated, 30);
     setRateLimitedUntil(Date.now() + waitS * 1000);
     console.warn(`Spotify rate limit — pausing all requests for ${waitS}s`);
   }
