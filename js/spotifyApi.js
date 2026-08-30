@@ -69,10 +69,15 @@ function rateLimitDeadline() {
   return rateLimitedUntil;
 }
 
-// Consecutive 429s with no successful call in between. Spotify ratchets a
-// misbehaving app's penalty up the longer it keeps seeing traffic, so we
-// ratchet our own wait up to match — each 429 in a row doubles the floor.
+// How persistent the 429s are. Spotify ratchets a misbehaving app's
+// penalty up the longer it keeps seeing traffic, so we ratchet our own
+// wait up to match — each 429 doubles the floor. The streak only really
+// clears once we've gone RATE_LIMIT_CALM_MS with no 429 at all: a single
+// endpoint being limited (e.g. /playlists while /me/player still answers)
+// must not let those steady 200s reset the escalation every poll.
+const RATE_LIMIT_CALM_MS = 5 * 60_000;
 let rateLimitStreak = 0;
+let lastRateLimitAt = 0;
 
 /** Milliseconds until it's safe to hit the API again (0 when clear). */
 export const rateLimitedForMs = () => Math.max(0, rateLimitDeadline() - Date.now());
@@ -91,12 +96,12 @@ async function apiFetch(path, options = {}, attempt = 0) {
     },
   });
 
-  if (res.ok) {
-    // Back in business — drop the escalation. Only clear the deadline if it
-    // has already elapsed: a request that raced ahead of a 429 response
-    // must not wipe a backoff we just deliberately set.
-    rateLimitStreak = 0;
-    if (rateLimitedUntil && rateLimitedUntil <= Date.now()) setRateLimitedUntil(0);
+  if (res.ok && rateLimitedUntil <= Date.now()) {
+    // Not racing ahead of a backoff we just set. Clear the deadline, but
+    // only drop the escalation streak once the 429s have actually stopped
+    // for a while — otherwise one healthy endpoint resets it every poll.
+    if (rateLimitedUntil) setRateLimitedUntil(0);
+    if (Date.now() - lastRateLimitAt > RATE_LIMIT_CALM_MS) rateLimitStreak = 0;
   }
 
   if (res.status === 401 && attempt === 0) {
@@ -115,6 +120,7 @@ async function apiFetch(path, options = {}, attempt = 0) {
     // is how the app stayed locked out for hours. A clean response resets
     // the streak.
     rateLimitStreak += 1;
+    lastRateLimitAt = Date.now();
     const waitS = rateLimitWaitSeconds(
       Number(res.headers.get("Retry-After")),
       rateLimitStreak,
