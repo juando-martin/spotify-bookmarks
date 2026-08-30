@@ -73,25 +73,44 @@ Original backlog #1–#12, plus everything added along the way:
   ↗ badge, `target="_blank" rel="noopener"`, an `aria-label`, and a
   focus-visible outline. Phone → the Spotify app; desktop → the web player.
   The get-out for editorial playlists "Pick a track" can't enumerate.
-- **Rate-limit recovery** — the app was death-spiralling on a 429: pre-fix
-  `apiFetch` retried a doomed request 3× per 5s poll and *kept retrying
-  through the 429s*, which makes Spotify extend the ban. Now: a 429 sets
-  `rateLimitedUntil` (≥ 20s, ≤ 120s) and there's **no retry**; every
-  `apiFetch` short-circuits and `pollOnce()` no-ops entirely while it's
-  set, so the app goes silent and Spotify's window resets. `getContextMeta`
-  also cools a failing context down (404 for the session, other errors for
-  10 min). A toast explains the pause, ≤ once a minute.
-  `rateLimitedForMs()` exported for the poll check.
-- **Cut the poll loop down to `/me/player`** — the Now playing card was
-  spending one `/playlists/{id}` request *every poll tick* to resolve a
-  playlist's name (playlists don't carry it in `/me/player`). That was the
-  bulk of steady-state traffic and the exact call that kept returning 429.
-  Removed: the name now comes from the bookmark (`customName` /
-  `contextName`), and a playlist you haven't bookmarked just shows "In a
-  playlist". `buildBookmarkFromSnapshot` still does one `/playlists/{id}`
-  per *new* playlist bookmark, but skips it once a real name + cover are
-  stored, so auto-/follow-bookmark stop re-hitting it. Steady state is now
-  just `GET /me/player` per interval.
+- **Rate-limit lockout — resolved (v37–v47).** A pre-v36 429 death-spiral
+  (`apiFetch` retried a doomed request 3× per 5 s poll and *kept retrying
+  through the 429s*, which makes Spotify escalate the penalty) grew into
+  repeated multi-hour — then multi-day — lockouts, ending in an IP/account
+  -level flag (login CAPTCHA) that needed a fresh Spotify Client ID plus
+  quiet time to clear. The code side is now closed; steady state is a
+  single `GET /me/player` per poll. What landed:
+  - **No retry on a 429.** It sets a global deadline; every `apiFetch`
+    short-circuits and `pollOnce()` no-ops until it passes, so the app goes
+    fully silent and Spotify's window resets instead of being pinned open.
+    `rateLimitedForMs()` is exported for the poll check; a toast explains
+    the pause ≤ once a minute.
+  - **`Retry-After` honoured in full** — no ceiling, 30 s floor, 24 h
+    sanity cap on the header value. Each further 429 before the window
+    clears doubles the wait (60 s → … → ~64 min); the streak only resets
+    after 5 min with no 429, so one still-healthy endpoint can't keep
+    clearing it. Math is `rateLimitWaitSeconds()` in `format.js` (9 unit
+    tests).
+  - **Deadline persisted** to `localStorage` `myspot:rl`, re-read on every
+    check (a 429 in one tab pauses the others), capped at +1 h when
+    recovered from storage so a stale far-future value can't strand the
+    app. A success clears it only if it has already elapsed (no racing a
+    just-set backoff).
+  - **Poll loop cut to `/me/player`.** The Now playing card was spending a
+    `/playlists/{id}` request every tick to resolve a playlist name (not in
+    the `/me/player` payload) — the bulk of steady-state traffic and the
+    call that kept 429-ing. The name now comes from the bookmark
+    (`customName` / `contextName`); an un-bookmarked playlist shows "In a
+    playlist". `buildBookmarkFromSnapshot` still fetches `/playlists/{id}`
+    once per new bookmark, skipped once a real name + cover are stored.
+  - **Catalogue search + "Pick a track" behind a hidden flag**
+    (`LIST_TOOLS_ENABLED`; `?listtools=1` or
+    `localStorage["myspot:listTools"]="1"`, off by default). Both hit
+    `/search` / `/playlists/{id}/tracks` in bursts — the quickest way to
+    trip abuse detection on a dev-mode app. Code and tests untouched, only
+    the UI is gated; the cover-art deep-link stays.
+  - **Per-context cooldown** in `getContextMeta`: a 404 for the session, a
+    429 for 15 min, any other failure for 10 min.
 - **Editorial-playlist bookmarks follow the song's art** — when Spotify
   confirms a playlist has no cover we can read (`getContextMeta` now
   returns `noCover: true` for a 404 or an empty `images`, vs leaving it
@@ -99,24 +118,6 @@ Original backlog #1–#12, plus everything added along the way:
   currently-bookmarked track's album art instead of freezing the first one.
   Refreshes on the next save/auto-/follow-bookmark; a transient lookup
   failure still keeps the stored image.
-- **Catalogue search + "Pick a track" behind a hidden flag** — both hit
-  low-quota endpoints (`/search`, `/playlists/{id}/tracks`) in bursts and
-  are the easiest way to trip Spotify's abuse detection on a dev-mode app.
-  The code and tests are untouched; only the UI that reaches them is gated
-  on `LIST_TOOLS_ENABLED` (off by default; `?listtools=1` for a session or
-  `localStorage["myspot:listTools"]="1"` to persist). The cover-art tile
-  still deep-links into Spotify regardless.
-- **Rate-limit lockout, part 2** — a brief 429 was turning into a
-  multi-hour lockout. Two causes: (a) the backoff was capped at 120 s,
-  so a long `Retry-After` (Spotify sends minutes-to-an-hour for a
-  badly-limited app) was ignored and we'd poke the API again
-  mid-penalty, resetting its clock; (b) `rateLimitedUntil` was
-  in-memory only, so every reload — including the ones done to "check
-  the new version" — reset it to 0 and fired a poll straight into the
-  penalty window. Now: honour `Retry-After` in full (floor 30 s,
-  ceiling 1 h), and persist the deadline in `localStorage`
-  (`myspot:rateLimitedUntil`) so a reload or SW update still waits it
-  out. Toast shows the rough hold time.
 
 ## Left
 
