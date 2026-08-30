@@ -17,6 +17,9 @@ const contextMetaCooldown = new Map();
 // individually just digs the hole deeper and freezes the whole app.
 let rateLimitedUntil = 0;
 
+/** Milliseconds until it's safe to hit the API again (0 when clear). */
+export const rateLimitedForMs = () => Math.max(0, rateLimitedUntil - Date.now());
+
 async function apiFetch(path, options = {}, attempt = 0) {
   if (Date.now() < rateLimitedUntil) {
     return new Response(null, { status: 429, statusText: "Rate limited (backing off)" });
@@ -40,12 +43,13 @@ async function apiFetch(path, options = {}, attempt = 0) {
 
   if (res.status === 429) {
     // Don't retry — just note when it's safe to make requests again. Every
-    // apiFetch above short-circuits until then, so the poll loop effectively
-    // pauses instead of hammering.
+    // apiFetch above short-circuits until then, so the poll loop pauses
+    // instead of hammering. Minimum 20s so Spotify's rolling window can
+    // actually reset (a poll every 5s would keep it pinned open).
     const retryAfter = Number(res.headers.get("Retry-After"));
-    const waitS = Math.min(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 5, 60);
+    const waitS = Math.min(Math.max(Number.isFinite(retryAfter) ? retryAfter : 0, 20), 120);
     rateLimitedUntil = Date.now() + waitS * 1000;
-    console.warn(`Spotify rate limit — pausing requests for ${waitS}s`);
+    console.warn(`Spotify rate limit — pausing all requests for ${waitS}s`);
   }
 
   return res;

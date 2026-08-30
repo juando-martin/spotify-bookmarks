@@ -13,7 +13,7 @@ import {
   spotifyWebUrl,
 } from "./format.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
-import { getCurrentUser, getPlaybackState, getContextMeta, getContextTracks, getDevices, resumePlayback, playbackControl, seek, searchContexts } from "./spotifyApi.js";
+import { getCurrentUser, getPlaybackState, getContextMeta, getContextTracks, getDevices, resumePlayback, playbackControl, seek, searchContexts, rateLimitedForMs } from "./spotifyApi.js";
 import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, contextKey } from "./firebaseBookmarks.js";
 
 const el = {
@@ -403,7 +403,10 @@ function renderTracksInto(container, bm) {
     return;
   }
   if (state === null || state === undefined) {
-    container.textContent = "Couldn't load the tracks — try again in a moment.";
+    container.textContent =
+      rateLimitedForMs() > 0
+        ? "Spotify is rate-limiting the app — try again in a minute."
+        : "Couldn't load the tracks — try again in a moment.";
     return;
   }
   if (state.forbidden) {
@@ -806,12 +809,22 @@ async function onImport() {
 }
 
 let polling = false;
+let rateLimitToastAt = 0;
 
 /** Runs on every poll tick: updates the display and auto-bookmarks on context switch. */
 async function pollOnce() {
   // A tick can outlast the interval (429 backoff, a slow name lookup). Skip
   // overlapping runs so two of them can't both fire the auto-bookmark.
   if (polling) return;
+  // Spotify is rate-limiting the app — sit completely still so its window
+  // can reset. The interval keeps firing; these ticks just no-op.
+  if (rateLimitedForMs() > 0) {
+    if (Date.now() - rateLimitToastAt > 60_000) {
+      showToast("Spotify is rate-limiting the app — it'll recover on its own.");
+      rateLimitToastAt = Date.now();
+    }
+    return;
+  }
   polling = true;
   try {
     await runPoll();

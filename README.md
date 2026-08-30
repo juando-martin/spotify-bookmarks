@@ -205,9 +205,11 @@ Redirect URI matches the real deployed URL).
   ID is stable (Discover Weekly keeps the same URI forever, only its
   contents rotate), so a name you set once sticks.
 - If Spotify rate-limits a request (HTTP 429), the API wrapper stops making
-  requests entirely until the `Retry-After` window passes (capped 60s) —
-  every `apiFetch` short-circuits, so the poll loop pauses instead of
-  retrying each call and digging deeper. It recovers on its own.
+  requests entirely — for at least 20s (Spotify's window is ~30s), capped
+  at 120s. Every `apiFetch` short-circuits *and* `pollOnce` no-ops during
+  that window, so the app goes completely silent and Spotify's limiter can
+  reset rather than being pinned open by a request every few seconds. A
+  toast tells you (at most once a minute). It recovers on its own.
 - A playlist whose name/cover can't be read (a 429, or an editorial
   playlist) is backed off: 404s for the session, other failures for 10
   minutes — so a bad playlist doesn't get re-requested every poll tick.
