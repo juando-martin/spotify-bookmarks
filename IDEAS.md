@@ -134,6 +134,13 @@ natively — so low payoff.
 
 ## Not planned (considered, deliberately skipped)
 
+- **Un-hiding the list tools** — `LIST_TOOLS_ENABLED` (catalogue search +
+  "Pick a track") is expected to stay **off** by default indefinitely, not
+  as a temporary measure. The tap-the-cover-tile → open in Spotify → pick a
+  song there → come back and update flow covers the same need without the
+  `/search` and `/playlists/{id}/tracks` burst traffic that keeps getting a
+  Development-Mode app rate-limited. The code stays in place for anyone who
+  flips the flag.
 - **Server-side / always-on polling** — the README's "Always-on
   auto-bookmark" (kiosk browser on a Pi with `?background`) covers this.
 - **Real per-user isolation** — needs a backend to mint Firebase custom
