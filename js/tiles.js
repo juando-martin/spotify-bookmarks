@@ -22,7 +22,6 @@ export const TILE_STYLES = [
   { id: "riso", label: "Risograph" },
   { id: "hairline", label: "Hairline" },
 ];
-const STYLE_IDS = new Set(TILE_STYLES.map((s) => s.id));
 export const DEFAULT_TILE_STYLE = "flat";
 
 // Bold system stack — matches the app's font-family, no webfont to wait on.
@@ -230,7 +229,42 @@ function hairline(ctx, S, seed, mono) {
   ctx.fillText(mono, S * 0.56, S * 0.61);
 }
 
-const DRAW = { flat, gradient, aurora, equalizer, riso, hairline };
+// Not generated from the name — representative previews for the two
+// pseudo-styles. In the list "song" resolves to the real track art and
+// "blank" to nothing (see bookmarkArtUrl in main.js); these are only drawn
+// for the Settings preview.
+function song(ctx, S) {
+  const g = ctx.createLinearGradient(0, 0, 0, S);
+  g.addColorStop(0, "#3f4756");
+  g.addColorStop(1, "#2b3240");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.beginPath();
+  ctx.arc(S * 0.68, S * 0.33, S * 0.1, 0, 7);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(S * 0.1, S * 0.8);
+  ctx.lineTo(S * 0.37, S * 0.42);
+  ctx.lineTo(S * 0.55, S * 0.64);
+  ctx.lineTo(S * 0.72, S * 0.48);
+  ctx.lineTo(S * 0.9, S * 0.8);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function blank(ctx, S) {
+  ctx.fillStyle = "#1e222b";
+  ctx.fillRect(0, 0, S, S);
+  ctx.strokeStyle = "rgba(255,255,255,0.32)";
+  ctx.lineWidth = Math.max(1.5, S * 0.05);
+  const m = ctx.lineWidth;
+  ctx.setLineDash([S * 0.16, S * 0.1]);
+  ctx.strokeRect(m, m, S - 2 * m, S - 2 * m);
+  ctx.setLineDash([]);
+}
+
+const DRAW = { flat, gradient, aurora, equalizer, riso, hairline, song, blank };
 
 // --- entry point --------------------------------------------------------
 
@@ -243,7 +277,7 @@ const cache = new Map(); // `${style}|${seed}|${mono}|${size}` -> data URL
  * calls with the same arguments are free.
  */
 export function tileDataUrl(styleId, seedStr, label, size = 52) {
-  const style = STYLE_IDS.has(styleId) ? styleId : DEFAULT_TILE_STYLE;
+  const style = DRAW[styleId] ? styleId : DEFAULT_TILE_STYLE;
   const mono = monogram(label);
   const key = `${style}|${seedStr}|${mono}|${size}`;
   const hit = cache.get(key);

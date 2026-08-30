@@ -409,17 +409,17 @@ const TILE_PREVIEW_NAMES = ["Discover Weekly", "Deep Focus", "Rainy Day"];
 /** Redraw the sample under the style picker in Settings. */
 function updateTilePreview() {
   if (!el.tilePreview) return;
-  if (settings.tileStyle === "blank") {
-    el.tilePreview.innerHTML = `<span class="tile-preview-note">Leaves the tile empty.</span>`;
-    return;
-  }
-  if (settings.tileStyle === "song") {
+  const mode = settings.tileStyle;
+  if (mode === "song" || mode === "blank") {
+    const note =
+      mode === "song" ? "each bookmark shows the saved track's album art" : "the tile is left empty";
     el.tilePreview.innerHTML =
-      `<span class="tile-preview-note">Shows the saved track's album art.</span>`;
+      `<img src="${tileDataUrl(mode, "x", "", 44)}" alt="" width="44" height="44" />` +
+      `<span class="tile-preview-note">${escapeHtml(note.charAt(0).toUpperCase() + note.slice(1))}.</span>`;
     return;
   }
   el.tilePreview.innerHTML = TILE_PREVIEW_NAMES.map((n) => {
-    const url = tileDataUrl(settings.tileStyle, n, n, 44);
+    const url = tileDataUrl(mode, n, n, 44);
     return `<img src="${url}" alt="" width="44" height="44" />`;
   }).join("");
 }

@@ -128,7 +128,9 @@ Original backlog #1–#12, plus everything added along the way:
   per-device (`settings.tileStyle` / `.tileApply`), so changing either just
   repaints — nothing stored per bookmark, no migration. Albums are never
   tiled. `monogram()` + `hashCode()` are pure and unit-tested in
-  `format.js`; the draw functions + data-URL cache are in `tiles.js`.
+  `format.js`; the draw functions + data-URL cache are in `tiles.js`
+  (including representative-only `song` / `blank` draws for the Settings
+  preview — the list itself resolves those to real track art / nothing).
   Studied in the "Playlist Tile Studio" artifact.
 - **`trackImageUrl` on the bookmark** — the saved track's own album art,
   always stored (it's free, it's in every `/me/player` snapshot). Feeds the
