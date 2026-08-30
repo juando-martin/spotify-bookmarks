@@ -16,15 +16,14 @@ it's a normal `git push` to deploy.
   album. Resume drops you back there with the queue continuing normally.
 - **Auto-bookmark on switch** — leaving a playlist/album saves where you
   were, automatically (toggle in Settings).
-- **Find a playlist or album** — a search box with live results; tap one to
-  start it playing (then bookmark it from the Now playing card).
 - **Now playing card** — album art, track / album / playlist name, and
   **⏮ / ⏯ / ⏭** transport controls for the active device.
 - **Bookmark list** — album-art thumbnail, saved position ("resumes at
   2:34"), last-used relative time, ordered most-recently-used first, with a
-  filter box (matches name / track / artist). **Pick a track** on any
-  bookmark expands its playlist/album so you can play a different song from
-  it.
+  filter box (matches name / track / artist).
+- **List tools** (off by default — see the `listtools` flag below): a
+  **Find a playlist or album** search box, and **Pick a track** on any
+  bookmark to play a different song from its playlist/album.
 - **Rename** any bookmark (✎). Needed for Spotify's editorial "Mix"
   playlists, whose real name the Web API won't hand back; your name then
   shows on the Now playing card too.
@@ -148,16 +147,33 @@ Redirect URI matches the real deployed URL).
 - Each bookmark shows the saved position ("resumes at 2:34") and when it was
   last used as a relative time ("used 3 hours ago"; hover/long-press for the
   exact timestamp).
-- **Find a playlist or album** is a foldable card between Now playing and
-  Settings. Typing searches the catalogue (`/search?type=playlist,album`,
-  debounced 300 ms); tapping a result plays it from the start on the active
-  device (`context_uri` with `offset: { position: 0 }`) — same
-  needs-a-device caveat as Resume. It doesn't create a bookmark; once it's
-  playing, "Bookmark this spot" does.
+- **List tools** — the **Find a playlist or album** search card and the
+  per-bookmark **Pick a track** button — are **hidden by default**. Both hit
+  Spotify endpoints (`/search`, `/playlists/{id}/tracks`) that chew through
+  a Development-Mode app's small rate-limit budget in bursts, which is the
+  quickest way to get the app 429'd. The code is all still there; only the
+  UI that reaches it is gated on a flag, `LIST_TOOLS_ENABLED` in
+  `js/main.js`, resolved at startup from:
+  - `?listtools=1` in the URL — turns it on and persists the choice (the
+    param is then stripped from the address bar). `?listtools=0` turns it
+    back off. Handy on a phone with no dev console.
+  - `localStorage` key `myspot:listTools` (`"1"` / `"0"`) — what the URL
+    param writes; set it directly from a desktop console if you prefer.
+  - default: **off**.
+
+  With the flag on: **Find a playlist or album** is a foldable card between
+  Now playing and Settings — typing searches the catalogue
+  (`/search?type=playlist,album`, debounced 300 ms), tapping a result plays
+  it from the start on the active device (`context_uri` with
+  `offset: { position: 0 }`, same needs-a-device caveat as Resume; it
+  doesn't create a bookmark — "Bookmark this spot" does once it's playing).
+  **Pick a track** expands a bookmark's playlist/album inline so you can
+  start a different song from it.
 - A bookmark's **cover art is a link** (green ↗ badge) to
   `open.spotify.com/<kind>/<id>` — on a phone that opens the Spotify app on
   that playlist/album; on desktop it opens the web player in a new tab.
-  Handy for editorial playlists "Pick a track" can't list.
+  This one is always available (it's a plain link, no API call) and is the
+  get-out for editorial playlists "Pick a track" can't list.
 - The Now playing card has **⏮ / ⏯ / ⏭** transport buttons and a **seek
   bar** (shown only when something's on a device). They control whatever
   device is active — same "needs an active device" caveat as Resume.
@@ -186,11 +202,19 @@ Redirect URI matches the real deployed URL).
   ordering existed fall back to their save time.
 - A bookmark's thumbnail is the **playlist or album cover**. For an album
   that's free (it's the playing track's art, already in the payload); for a
-  playlist it's one extra `GET /playlists/{id}` (cached for the session). If
-  the cover can't be read — an editorial playlist — it falls back to the
-  bookmarked track's album art. The Now playing card still shows the current
-  *track's* art, not the cover. Bookmarks saved before this show whatever
-  they stored until re-saved.
+  playlist it's one extra `GET /playlists/{id}`, made **only when a bookmark
+  is first saved** (or re-saved while it still lacks a real name or cover) —
+  never on the poll loop, and skipped entirely once the name and cover are
+  stored. If the cover can't be read — an editorial playlist — it falls back
+  to the bookmarked track's album art. The Now playing card still shows the
+  current *track's* art, not the cover. Bookmarks saved before this show
+  whatever they stored until re-saved.
+- The poll loop is deliberately just `GET /me/player`. A playlist's name
+  isn't in that payload, so the Now playing card takes the name from the
+  matching bookmark (`customName` / `contextName`); a playlist you're
+  playing but haven't bookmarked shows "In a playlist". This is what keeps
+  steady-state traffic to one request per interval — an earlier build
+  looked the name up every tick and that call is what kept getting 429'd.
 - Reading a **private or collaborative** playlist's name needs the
   `playlist-read-private` / `playlist-read-collaborative` scopes (in
   `js/config.js`). If you added these to an existing install, **log out and
@@ -209,14 +233,21 @@ Redirect URI matches the real deployed URL).
   ID is stable (Discover Weekly keeps the same URI forever, only its
   contents rotate), so a name you set once sticks.
 - If Spotify rate-limits a request (HTTP 429), the API wrapper stops making
-  requests entirely — for at least 20s (Spotify's window is ~30s), capped
-  at 120s. Every `apiFetch` short-circuits *and* `pollOnce` no-ops during
-  that window, so the app goes completely silent and Spotify's limiter can
-  reset rather than being pinned open by a request every few seconds. A
-  toast tells you (at most once a minute). It recovers on its own.
-- A playlist whose name/cover can't be read (a 429, or an editorial
-  playlist) is backed off: 404s for the session, other failures for 10
-  minutes — so a bad playlist doesn't get re-requested every poll tick.
+  requests entirely until it's safe again. It honours the `Retry-After`
+  header **in full** (Spotify sends anything from seconds to an hour for a
+  badly-limited app), with a 30s floor and no upper cap, and each further
+  429 before the window clears **doubles** the wait (60s → 120s → … → ~64
+  min). Every `apiFetch` short-circuits *and* `pollOnce` no-ops during that
+  window, so the app goes completely silent and Spotify's limiter can reset
+  rather than being pinned open by a request every few seconds. The
+  deadline is persisted to `localStorage` (`myspot:rl`, re-read every check
+  so a 429 in one tab pauses the others, capped at 1h when recovered from
+  storage) so a reload or service-worker update still waits it out. A toast
+  tells you (at most once a minute). It recovers on its own. The wait math
+  is `rateLimitWaitSeconds()` in `js/format.js` (unit-tested).
+- A playlist whose name/cover can't be read is backed off so it isn't
+  re-requested on the next save: a 404 (editorial playlist) for the rest of
+  the session, a 429 for 15 minutes, any other failure for 10 minutes.
 - The **Settings** card (a foldable `<details>`, collapsed by default, state
   remembered per device) has:
   - **Auto-bookmark when I switch playlist or album** — on by default; saves
@@ -269,8 +300,8 @@ Redirect URI matches the real deployed URL).
   cache first, then revalidates. Falls back to memory-only where IndexedDB
   isn't available.
 - Names/covers for playlists that return 404 (Spotify's editorial Mixes) are
-  negative-cached for the session, so the app doesn't re-request them on
-  every poll.
+  negative-cached for the session, so a bookmark save doesn't re-request one
+  that's known to be unreadable.
 
 ## File layout
 
