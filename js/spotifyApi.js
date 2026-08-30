@@ -20,12 +20,27 @@ const contextMetaCooldown = new Map();
 // otherwise reset it to 0 and immediately fire a poll straight into the
 // penalty window, which keeps the app flagged and the window from ever
 // resetting. This is what turned a brief 429 into a multi-hour lockout.
-const RATE_LIMIT_KEY = "myspot:rateLimitedUntil";
+const RATE_LIMIT_KEY = "myspot:rl";
+// A deadline recovered from storage (a reload, or another tab) is only
+// trusted for up to an hour from now: we can't be sure it's still real,
+// and probing a genuinely-limited API once an hour is harmless. A 429 this
+// session set live still holds its full Retry-After in memory.
+const PERSISTED_MAX_MS = 3_600_000;
+
+try {
+  localStorage.removeItem("myspot:rateLimitedUntil"); // pre-v42 key — drop stale values
+} catch {
+  /* ignore */
+}
+
+const cappedPersisted = (raw) =>
+  Number.isFinite(raw) && raw > Date.now()
+    ? Math.min(raw, Date.now() + PERSISTED_MAX_MS)
+    : 0;
 
 let rateLimitedUntil = 0;
 try {
-  const stored = Number(localStorage.getItem(RATE_LIMIT_KEY));
-  if (Number.isFinite(stored) && stored > Date.now()) rateLimitedUntil = stored;
+  rateLimitedUntil = cappedPersisted(Number(localStorage.getItem(RATE_LIMIT_KEY)));
 } catch {
   /* private mode / storage disabled — in-memory only */
 }
@@ -41,12 +56,13 @@ function setRateLimitedUntil(ts) {
 }
 
 // The effective deadline: the later of this context's value and whatever
-// another tab has persisted. Reading storage on every check (not just at
-// load) means a 429 in one tab pauses every other open tab too.
+// another tab has persisted (capped — see PERSISTED_MAX_MS). Reading
+// storage on every check, not just at load, means a 429 in one tab pauses
+// every other open tab too.
 function rateLimitDeadline() {
   try {
-    const stored = Number(localStorage.getItem(RATE_LIMIT_KEY));
-    if (Number.isFinite(stored) && stored > rateLimitedUntil) rateLimitedUntil = stored;
+    const stored = cappedPersisted(Number(localStorage.getItem(RATE_LIMIT_KEY)));
+    if (stored > rateLimitedUntil) rateLimitedUntil = stored;
   } catch {
     /* ignore */
   }
