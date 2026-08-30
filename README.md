@@ -205,10 +205,14 @@ Redirect URI matches the real deployed URL).
   playlist it's one extra `GET /playlists/{id}`, made **only when a bookmark
   is first saved** (or re-saved while it still lacks a real name or cover) —
   never on the poll loop, and skipped entirely once the name and cover are
-  stored. If the cover can't be read — an editorial playlist — it falls back
-  to the bookmarked track's album art. The Now playing card still shows the
-  current *track's* art, not the cover. Bookmarks saved before this show
-  whatever they stored until re-saved.
+  stored. When Spotify confirms a playlist has no cover we can read (an
+  editorial playlist), the thumbnail instead follows the **currently
+  bookmarked track's** album art — it refreshes on each save/auto-/
+  follow-bookmark, so it moves with the bookmark rather than freezing on the
+  first song. A lookup that merely failed (429, offline) keeps the stored
+  image. The Now playing card still shows the current *track's* art, not the
+  cover. Bookmarks saved before this show whatever they stored until
+  re-saved.
 - The poll loop is deliberately just `GET /me/player`. A playlist's name
   isn't in that payload, so the Now playing card takes the name from the
   matching bookmark (`customName` / `contextName`); a playlist you're
@@ -223,8 +227,9 @@ Redirect URI matches the real deployed URL).
 - Spotify-owned **editorial / algorithmic** playlists (Discover Weekly,
   Daily Mix, Release Radar, artist/mood Mixes, …) can't be read via the Web
   API for Development-Mode apps, so their name won't resolve — the bookmark
-  shows "Unknown playlist" and the Now playing card shows "In a playlist".
-  Bookmarking and resuming still work; only the display name is missing.
+  shows "Unknown playlist" and the Now playing card shows "In a playlist",
+  and the thumbnail follows the bookmarked track's art (see above).
+  Bookmarking and resuming still work; rename it (✎) to give it a name.
 - Every bookmark has a **✎ rename** control next to its name. The custom
   name is stored per bookmark (`customName`), shown instead of Spotify's
   (clear the field to fall back), and survives re-saves and auto-bookmarks.

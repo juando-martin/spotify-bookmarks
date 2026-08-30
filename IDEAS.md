@@ -92,6 +92,13 @@ Original backlog #1–#12, plus everything added along the way:
   per *new* playlist bookmark, but skips it once a real name + cover are
   stored, so auto-/follow-bookmark stop re-hitting it. Steady state is now
   just `GET /me/player` per interval.
+- **Editorial-playlist bookmarks follow the song's art** — when Spotify
+  confirms a playlist has no cover we can read (`getContextMeta` now
+  returns `noCover: true` for a 404 or an empty `images`, vs leaving it
+  unset for a lookup that just failed), the bookmark's thumbnail tracks the
+  currently-bookmarked track's album art instead of freezing the first one.
+  Refreshes on the next save/auto-/follow-bookmark; a transient lookup
+  failure still keeps the stored image.
 - **Catalogue search + "Pick a track" behind a hidden flag** — both hit
   low-quota endpoints (`/search`, `/playlists/{id}/tracks`) in bursts and
   are the easiest way to trip Spotify's abuse detection on a dev-mode app.

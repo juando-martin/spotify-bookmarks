@@ -152,11 +152,15 @@ export async function getPlaybackState() {
 }
 
 /**
- * Playlist/album metadata — `{ name, imageUrl }` — cached in memory for the
- * session. imageUrl is the playlist/album *cover* (not any track's art).
- * Both fields are null when it can't be read (a transient error, or an
- * editorial playlist a Development-Mode app isn't allowed to fetch); the
- * caller decides what to fall back to.
+ * Playlist/album metadata — `{ name, imageUrl, noCover }` — cached in memory
+ * for the session. imageUrl is the playlist/album *cover* (not any track's
+ * art), null when there isn't one or it can't be read.
+ *
+ * `noCover` is true only when Spotify *confirmed* there's no usable cover —
+ * a 200 with no images, or a 404 (an editorial playlist a Development-Mode
+ * app can't fetch). It stays false/undefined when the lookup simply didn't
+ * complete (transient error, on cooldown), so the caller can tell "there
+ * will never be a cover, fall back for good" from "try again later".
  */
 export async function getContextMeta(type, id) {
   const cacheKey = `${type}:${id}`;
@@ -164,17 +168,17 @@ export async function getContextMeta(type, id) {
     return contextMetaCache.get(cacheKey);
   }
   if (unreadableContexts.has(cacheKey)) {
-    return { name: null, imageUrl: null };
+    return { name: null, imageUrl: null, noCover: true };
   }
   if ((contextMetaCooldown.get(cacheKey) ?? 0) > Date.now()) {
-    return { name: null, imageUrl: null }; // failed recently — don't re-hit it yet
+    return { name: null, imageUrl: null }; // failed recently — status unknown
   }
   const path =
     type === "playlist" ? `/playlists/${id}?fields=name,images` : `/albums/${id}`;
   const res = await apiFetch(path);
   if (res.status === 404) {
     unreadableContexts.add(cacheKey); // persistent — stop asking this session
-    return { name: null, imageUrl: null };
+    return { name: null, imageUrl: null, noCover: true };
   }
   if (!res.ok) {
     // Back this context off so a stuck poll loop doesn't re-request it every
@@ -187,11 +191,12 @@ export async function getContextMeta(type, id) {
       cacheKey,
       Date.now() + (res.status === 429 ? 15 * 60_000 : 10 * 60_000),
     );
-    return { name: null, imageUrl: null };
+    return { name: null, imageUrl: null }; // status unknown — don't treat as "no cover"
   }
   contextMetaCooldown.delete(cacheKey);
   const data = await res.json();
-  const meta = { name: data.name || null, imageUrl: smallestImageUrl(data.images) };
+  const imageUrl = smallestImageUrl(data.images);
+  const meta = { name: data.name || null, imageUrl, noCover: !imageUrl };
   if (meta.name || meta.imageUrl) contextMetaCache.set(cacheKey, meta);
   return meta;
 }

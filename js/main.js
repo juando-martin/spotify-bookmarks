@@ -297,8 +297,7 @@ async function buildBookmarkFromSnapshot(snapshot) {
   // playing track's art is already that cover. For a playlist we need one
   // /playlists/{id} request — but only the first time: once a bookmark has a
   // real name and a cover stored, reuse them instead of re-hitting the API
-  // on every auto-/follow-bookmark. (Editorial playlists never resolve a
-  // cover anyway, so those keep the track art fallback below.)
+  // on every auto-/follow-bookmark.
   let contextName = name;
   let coverUrl = null;
   if (type === "album") {
@@ -312,7 +311,12 @@ async function buildBookmarkFromSnapshot(snapshot) {
     } else {
       const meta = await getContextMeta(type, id);
       contextName = contextName ?? meta.name ?? storedName;
-      coverUrl = meta.imageUrl ?? storedCover;
+      // Real cover if Spotify gave us one. If it confirmed there's none
+      // (an editorial playlist), track the *current* song's art so the tile
+      // shows something and moves with the bookmark. A lookup that just
+      // didn't complete keeps whatever was already stored.
+      coverUrl =
+        meta.imageUrl ?? (meta.noCover ? snapshot.track.imageUrl : storedCover);
     }
   }
 
