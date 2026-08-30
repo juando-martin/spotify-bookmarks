@@ -2,7 +2,7 @@
 // Thin wrapper around the Spotify Web API endpoints this app needs.
 
 import { getAccessToken } from "./auth.js";
-import { normalizePlaybackState, smallestImageUrl } from "./format.js";
+import { normalizePlaybackState, smallestImageUrl, rateLimitWaitSeconds } from "./format.js";
 
 const API_BASE = "https://api.spotify.com/v1";
 const contextMetaCache = new Map();
@@ -93,25 +93,16 @@ async function apiFetch(path, options = {}, attempt = 0) {
   if (res.status === 429) {
     // Don't retry — just note when it's safe to make requests again. Every
     // apiFetch above short-circuits until then, so the poll loop pauses
-    // instead of hammering.
-    //
-    // Honour Spotify's Retry-After in full when it sends one. For a badly
-    // rate-limited app that can be many minutes to an hour; poking the API
-    // again before it's up just resets that clock, which is how the app
-    // stayed locked out for hours.
-    //
-    // On top of that, escalate: each 429 in a row doubles the floor
-    // (1m, 2m, 4m … capped at ~64m) so a persistent penalty makes the app
-    // go quieter and quieter instead of probing every couple of minutes.
-    // A single clean response resets the streak.
+    // instead of hammering. rateLimitWaitSeconds() (in format.js, unit-
+    // tested) honours Retry-After in full and escalates each repeat 429;
+    // poking the API before it's up just re-arms Spotify's penalty, which
+    // is how the app stayed locked out for hours. A clean response resets
+    // the streak.
     rateLimitStreak += 1;
-    const retryAfter = Number(res.headers.get("Retry-After"));
-    // Honour Retry-After in full — no upper clamp beyond a 24h sanity bound
-    // against a malformed header. Cutting it short is what kept re-arming
-    // the penalty. The escalation and a 30s floor can only lengthen it.
-    const asked = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 86400) : 0;
-    const escalated = 60 * 2 ** Math.min(rateLimitStreak - 1, 6); // 60s … 3840s
-    const waitS = Math.max(asked, escalated, 30);
+    const waitS = rateLimitWaitSeconds(
+      Number(res.headers.get("Retry-After")),
+      rateLimitStreak,
+    );
     setRateLimitedUntil(Date.now() + waitS * 1000);
     console.warn(`Spotify rate limit — pausing all requests for ${waitS}s`);
   }

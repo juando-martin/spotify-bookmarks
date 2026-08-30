@@ -129,6 +129,28 @@ export function normalizePlaybackState(data) {
   };
 }
 
+/**
+ * How long (in seconds) to stop hitting the Spotify API after a 429.
+ *
+ *   retryAfter — the response's `Retry-After` header in seconds. Any
+ *                non-finite or non-positive value counts as "not sent".
+ *   streak     — consecutive 429s with no successful call in between
+ *                (1 for the first). Each one doubles an escalating floor:
+ *                60, 120, 240 … capped at 3840s (~64 min) from streak 7 on.
+ *
+ * The result is always >= the server's Retry-After (honoured in full, with
+ * only a 24h sanity cap against a garbage header) and never below 30s. The
+ * escalation and the floor can only ever lengthen the wait, never shorten
+ * what Spotify asked for.
+ */
+export function rateLimitWaitSeconds(retryAfter, streak) {
+  const asked =
+    Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 86400) : 0;
+  const n = Math.max(1, Math.floor(Number(streak) || 1));
+  const escalated = 60 * 2 ** Math.min(n - 1, 6); // 60 … 3840
+  return Math.max(asked, escalated, 30);
+}
+
 /** A bookmark doc's server-side "last used" time in ms (0 if never set). */
 export function bookmarkUsedMs(bm) {
   return bm.lastUsedAt?.toMillis?.() ?? bm.updatedAt?.toMillis?.() ?? 0;

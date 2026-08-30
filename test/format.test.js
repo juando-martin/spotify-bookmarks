@@ -14,6 +14,7 @@ import {
   normalizePlaybackState,
   bookmarkUsedMs,
   buildImportBookmark,
+  rateLimitWaitSeconds,
 } from "../js/format.js";
 
 test("contextKey joins type and id with an underscore", () => {
@@ -305,4 +306,67 @@ test("bookmarkMatches falls back to contextName and tolerates missing fields", (
   assert.equal(bookmarkMatches({ contextName: "Discover Weekly" }, "weekly"), true);
   assert.equal(bookmarkMatches({}, "anything"), false);
   assert.equal(bookmarkMatches({}, ""), true);
+});
+
+// --- rateLimitWaitSeconds -------------------------------------------------
+
+test("rateLimitWaitSeconds honours Retry-After in full when it exceeds the floor", () => {
+  assert.equal(rateLimitWaitSeconds(300, 1), 300);      // 5 min, first 429
+  assert.equal(rateLimitWaitSeconds(3600, 1), 3600);    // 1 h
+  assert.equal(rateLimitWaitSeconds(7200, 1), 7200);    // 2 h — no upper clamp
+});
+
+test("rateLimitWaitSeconds never returns less than Retry-After", () => {
+  for (const ra of [31, 45, 100, 500, 2000, 9000, 50000]) {
+    for (const streak of [1, 2, 3, 5, 8]) {
+      assert.ok(
+        rateLimitWaitSeconds(ra, streak) >= ra,
+        `wait(${ra}, ${streak}) = ${rateLimitWaitSeconds(ra, streak)} < ${ra}`,
+      );
+    }
+  }
+});
+
+test("rateLimitWaitSeconds caps a garbage Retry-After at 24h", () => {
+  assert.equal(rateLimitWaitSeconds(999999999, 1), 86400);
+});
+
+test("rateLimitWaitSeconds falls back to the escalating floor when Retry-After is absent or junk", () => {
+  for (const missing of [undefined, null, NaN, 0, -5, "nope"]) {
+    assert.equal(rateLimitWaitSeconds(missing, 1), 60);
+  }
+});
+
+test("rateLimitWaitSeconds doubles the floor on each consecutive 429", () => {
+  assert.equal(rateLimitWaitSeconds(0, 1), 60);
+  assert.equal(rateLimitWaitSeconds(0, 2), 120);
+  assert.equal(rateLimitWaitSeconds(0, 3), 240);
+  assert.equal(rateLimitWaitSeconds(0, 4), 480);
+  assert.equal(rateLimitWaitSeconds(0, 5), 960);
+  assert.equal(rateLimitWaitSeconds(0, 6), 1920);
+  assert.equal(rateLimitWaitSeconds(0, 7), 3840);
+});
+
+test("rateLimitWaitSeconds caps the escalating floor at ~64 min however long the streak", () => {
+  assert.equal(rateLimitWaitSeconds(0, 8), 3840);
+  assert.equal(rateLimitWaitSeconds(0, 20), 3840);
+  assert.equal(rateLimitWaitSeconds(0, 1000), 3840);
+});
+
+test("rateLimitWaitSeconds takes the larger of Retry-After and the escalating floor", () => {
+  assert.equal(rateLimitWaitSeconds(100, 4), 480);   // floor 480 > asked 100
+  assert.equal(rateLimitWaitSeconds(600, 4), 600);   // asked 600 > floor 480
+  assert.equal(rateLimitWaitSeconds(5000, 7), 5000); // asked 5000 > floor 3840
+});
+
+test("rateLimitWaitSeconds treats a missing or bad streak as the first 429", () => {
+  assert.equal(rateLimitWaitSeconds(0, undefined), 60);
+  assert.equal(rateLimitWaitSeconds(0, 0), 60);
+  assert.equal(rateLimitWaitSeconds(0, -3), 60);
+  assert.equal(rateLimitWaitSeconds(0, 1.9), 60); // floored to 1
+});
+
+test("rateLimitWaitSeconds never returns below the 30s floor", () => {
+  assert.ok(rateLimitWaitSeconds(1, 1) >= 30);
+  assert.ok(rateLimitWaitSeconds(0, 1) >= 30);
 });
