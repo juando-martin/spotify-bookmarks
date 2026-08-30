@@ -100,9 +100,12 @@ export async function getContextMeta(type, id) {
     return { name: null, imageUrl: null };
   }
   if (!res.ok) {
-    // 429 or a hiccup — back off this context for a while so a stuck poll
-    // loop doesn't re-request it every few seconds.
-    contextMetaCooldown.set(cacheKey, Date.now() + 10 * 60_000);
+    // A real hiccup (not a 429 — that's the global backoff's job, and it's
+    // not this context's fault) — back it off so a stuck poll loop doesn't
+    // re-request it every few seconds.
+    if (res.status !== 429) {
+      contextMetaCooldown.set(cacheKey, Date.now() + 10 * 60_000);
+    }
     return { name: null, imageUrl: null };
   }
   contextMetaCooldown.delete(cacheKey);

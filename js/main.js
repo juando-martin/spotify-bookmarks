@@ -258,21 +258,31 @@ function renderNowPlaying() {
   el.bookmarkBtn.disabled = !context;
 }
 
+/** The contextName / imageUrl already stored for this context, if any — so a
+ *  re-save doesn't clobber a good value when the API lookup is failing. */
+function storedBookmarkField(key, field) {
+  const bm = allBookmarks.find((b) => b.id === key);
+  const v = bm?.[field];
+  if (field === "contextName" && typeof v === "string" && v.startsWith("Unknown ")) return null;
+  return v || null;
+}
+
 async function buildBookmarkFromSnapshot(snapshot) {
   const { type, id, uri, name } = snapshot.context;
+  const key = contextKey(type, id);
 
-  // The bookmark's thumbnail is the playlist/album *cover*. For an album,
-  // the playing track's art is already that cover — no extra call. For a
-  // playlist, fetch it (cached); fall back to the track art if it can't be
-  // read (e.g. an editorial playlist).
+  // The bookmark's thumbnail is the playlist/album *cover*. For an album the
+  // playing track's art is already that cover. For a playlist, fetch it
+  // (cached). If the lookup fails (rate-limited, editorial playlist), keep
+  // whatever this bookmark already had rather than overwriting it.
   let contextName = name;
   let coverUrl = null;
   if (type === "album") {
     coverUrl = snapshot.track.imageUrl ?? null;
   } else {
     const meta = await getContextMeta(type, id);
-    contextName = contextName ?? meta.name;
-    coverUrl = meta.imageUrl;
+    contextName = contextName ?? meta.name ?? storedBookmarkField(key, "contextName");
+    coverUrl = meta.imageUrl ?? storedBookmarkField(key, "imageUrl");
   }
 
   return {
