@@ -15,6 +15,7 @@ import {
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
 import { getCurrentUser, getPlaybackState, getContextMeta, getContextTracks, getDevices, resumePlayback, playbackControl, seek, searchContexts, rateLimitedForMs } from "./spotifyApi.js";
 import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, contextKey } from "./firebaseBookmarks.js";
+import { tileDataUrl, TILE_STYLES, DEFAULT_TILE_STYLE } from "./tiles.js";
 
 const el = {
   loginView: document.getElementById("login-view"),
@@ -55,6 +56,9 @@ const el = {
   autoBookmarkToggle: document.getElementById("auto-bookmark-toggle"),
   followBookmarkToggle: document.getElementById("follow-bookmark-toggle"),
   pollIntervalSelect: document.getElementById("poll-interval-select"),
+  tileStyleInputs: document.querySelectorAll('input[name="tile-style"]'),
+  tileScopeInputs: document.querySelectorAll('input[name="tile-scope"]'),
+  tilePreview: document.getElementById("tile-preview"),
   updateBanner: document.getElementById("update-banner"),
   updateVersion: document.getElementById("update-version"),
   updateReload: document.getElementById("update-reload"),
@@ -65,11 +69,15 @@ const el = {
 // apply when nothing is stored yet (auto-bookmark on, config's poll interval).
 const SETTINGS_KEY = "playlist-resume-settings";
 
+const TILE_SCOPES = ["never", "nocover", "all"];
+
 function loadSettings() {
   const defaults = {
     autoBookmark: true,
     followBookmark: false,
     pollIntervalMs: POLL_INTERVAL_MS,
+    tileStyle: DEFAULT_TILE_STYLE,
+    tileScope: "nocover",
   };
   try {
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
@@ -82,6 +90,10 @@ function loadSettings() {
         Number.isFinite(stored.pollIntervalMs) && stored.pollIntervalMs >= 1000
           ? stored.pollIntervalMs
           : defaults.pollIntervalMs,
+      tileStyle: TILE_STYLES.some((s) => s.id === stored.tileStyle)
+        ? stored.tileStyle
+        : defaults.tileStyle,
+      tileScope: TILE_SCOPES.includes(stored.tileScope) ? stored.tileScope : defaults.tileScope,
     };
   } catch {
     return defaults;
@@ -311,12 +323,11 @@ async function buildBookmarkFromSnapshot(snapshot) {
     } else {
       const meta = await getContextMeta(type, id);
       contextName = contextName ?? meta.name ?? storedName;
-      // Real cover if Spotify gave us one. If it confirmed there's none
-      // (an editorial playlist), track the *current* song's art so the tile
-      // shows something and moves with the bookmark. A lookup that just
-      // didn't complete keeps whatever was already stored.
-      coverUrl =
-        meta.imageUrl ?? (meta.noCover ? snapshot.track.imageUrl : storedCover);
+      // Real cover if Spotify gave us one. If it confirmed there's none (an
+      // editorial playlist), store null so the list knows there's no cover
+      // and draws a generated tile instead. A lookup that just didn't
+      // complete keeps whatever was already stored.
+      coverUrl = meta.imageUrl ?? (meta.noCover ? null : storedCover);
     }
   }
 
@@ -325,7 +336,9 @@ async function buildBookmarkFromSnapshot(snapshot) {
     contextId: id,
     contextUri: uri,
     contextName: contextName ?? `Unknown ${type}`,
-    imageUrl: coverUrl ?? snapshot.track.imageUrl ?? null,
+    // Playlists with no readable cover stay null on purpose (the list draws
+    // a tile); albums fall back to the track art, which *is* the cover.
+    imageUrl: coverUrl ?? (type === "album" ? snapshot.track.imageUrl ?? null : null),
     trackId: snapshot.track.id,
     trackUri: snapshot.track.uri,
     trackName: snapshot.track.name,
@@ -356,6 +369,34 @@ async function refreshBookmarkList() {
   renderBookmarks();
 }
 
+/**
+ * The image for a bookmark's tile. A real cover (Spotify's, or an album's
+ * art) is used when it exists and Settings allow it; otherwise a generated
+ * placeholder keyed on the stable context id (see js/tiles.js), or nothing.
+ * Only playlists ever get a generated tile — albums always have real art.
+ */
+function bookmarkArtUrl(bm) {
+  const isPlaylist = bm.contextType === "playlist";
+  const tile = () =>
+    tileDataUrl(settings.tileStyle, bm.contextId || bm.id, bookmarkName(bm));
+
+  if (isPlaylist && settings.tileScope === "all") return tile();
+  if (bm.imageUrl) return bm.imageUrl;
+  if (isPlaylist && settings.tileScope === "nocover") return tile();
+  return null;
+}
+
+const TILE_PREVIEW_NAMES = ["Discover Weekly", "Deep Focus", "Rainy Day"];
+
+/** Redraw the little sample tiles under the style picker in Settings. */
+function updateTilePreview() {
+  if (!el.tilePreview) return;
+  el.tilePreview.innerHTML = TILE_PREVIEW_NAMES.map((n) => {
+    const url = tileDataUrl(settings.tileStyle, n, n, 44);
+    return `<img src="${url}" alt="" width="44" height="44" />`;
+  }).join("");
+}
+
 /** Render allBookmarks, applying the filter box and the local-mark sort. */
 function renderBookmarks() {
   const q = el.bookmarkFilter.value.trim().toLowerCase();
@@ -381,8 +422,9 @@ function renderBookmarks() {
     if (Number.isFinite(bm.positionMs)) detail.push(`resumes at ${formatDuration(bm.positionMs)}`);
     if (usedDate) detail.push(`used ${formatRelative(usedDate)}`);
 
-    const artInner = bm.imageUrl
-      ? `<img class="bookmark-art" src="${escapeHtml(bm.imageUrl)}" alt="" width="52" height="52" loading="lazy" />`
+    const artUrl = bookmarkArtUrl(bm);
+    const artInner = artUrl
+      ? `<img class="bookmark-art" src="${escapeHtml(artUrl)}" alt="" width="52" height="52" loading="lazy" />`
       : `<div class="bookmark-art bookmark-art-empty" aria-hidden="true"></div>`;
     const art =
       `<a class="art-link" href="${escapeHtml(spotifyWebUrl(bm.contextUri))}" target="_blank" rel="noopener"` +
@@ -1159,6 +1201,27 @@ async function init() {
     saveSettings();
     if (pollHandle) startPolling(); // apply the new cadence immediately
   });
+
+  for (const input of el.tileStyleInputs) {
+    input.checked = input.value === settings.tileStyle;
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      settings.tileStyle = input.value;
+      saveSettings();
+      updateTilePreview();
+      renderBookmarks(); // tiles are drawn at render time — just repaint
+    });
+  }
+  for (const input of el.tileScopeInputs) {
+    input.checked = input.value === settings.tileScope;
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      settings.tileScope = input.value;
+      saveSettings();
+      renderBookmarks();
+    });
+  }
+  updateTilePreview();
 
   try {
     await handleRedirectIfPresent();

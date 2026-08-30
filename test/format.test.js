@@ -15,6 +15,8 @@ import {
   bookmarkUsedMs,
   buildImportBookmark,
   rateLimitWaitSeconds,
+  hashCode,
+  monogram,
 } from "../js/format.js";
 
 test("contextKey joins type and id with an underscore", () => {
@@ -369,4 +371,57 @@ test("rateLimitWaitSeconds treats a missing or bad streak as the first 429", () 
 test("rateLimitWaitSeconds never returns below the 30s floor", () => {
   assert.ok(rateLimitWaitSeconds(1, 1) >= 30);
   assert.ok(rateLimitWaitSeconds(0, 1) >= 30);
+});
+
+// --- hashCode ---
+
+test("hashCode is deterministic and returns a uint32", () => {
+  const a = hashCode("Discover Weekly");
+  assert.equal(a, hashCode("Discover Weekly"));
+  assert.ok(Number.isInteger(a) && a >= 0 && a <= 0xffffffff);
+});
+
+test("hashCode separates similar strings", () => {
+  assert.notEqual(hashCode("Daily Mix 1"), hashCode("Daily Mix 2"));
+  assert.notEqual(hashCode(""), hashCode(" "));
+});
+
+test("hashCode tolerates non-string input", () => {
+  assert.equal(hashCode(null), hashCode(""));
+  assert.equal(hashCode(undefined), hashCode(""));
+});
+
+// --- monogram ---
+
+test("monogram takes the initials of the first two words", () => {
+  assert.equal(monogram("Discover Weekly"), "DW");
+  assert.equal(monogram("deep focus"), "DF");
+  assert.equal(monogram("Release Radar Extra"), "RR");
+});
+
+test("monogram keeps a trailing number so numbered mixes stay distinct", () => {
+  assert.equal(monogram("Daily Mix 1"), "D1");
+  assert.equal(monogram("Daily Mix 4"), "D4");
+});
+
+test("monogram uses the first two letters of a single word", () => {
+  assert.equal(monogram("Anima"), "AN");
+  assert.equal(monogram("jazz"), "JA");
+});
+
+test("monogram splits on punctuation", () => {
+  assert.equal(monogram("R&B"), "RB");
+  assert.equal(monogram("90s Rock"), "9R");
+  assert.equal(monogram("Chill/Lofi"), "CL");
+});
+
+test("monogram falls back to '?' for blank or symbol-only names", () => {
+  assert.equal(monogram(""), "?");
+  assert.equal(monogram("   "), "?");
+  assert.equal(monogram("!!!"), "?");
+  assert.equal(monogram(null), "?");
+});
+
+test("monogram keeps non-Latin names", () => {
+  assert.equal(monogram("ローファイ"), "ローファイ".slice(0, 2));
 });

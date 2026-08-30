@@ -26,6 +26,41 @@ export function bookmarkName(bm) {
   return bm.customName || bm.contextName || "Unnamed";
 }
 
+/**
+ * FNV-1a hash of a string -> uint32. Deterministic; seeds the generated
+ * placeholder tile drawn for a playlist with no cover art (see js/tiles.js).
+ */
+export function hashCode(str) {
+  let h = 2166136261;
+  const s = String(str ?? "");
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * A 1-2 character monogram for a name: initials of the first two words, a
+ * leading initial + trailing number ("Daily Mix 4" -> "D4"), or the first
+ * two letters of a single word. Non-Latin names fall back to their first two
+ * characters. Blank -> "?".
+ */
+export function monogram(name) {
+  const s = String(name ?? "").trim();
+  if (!s) return "?";
+  const parts = s.split(/[\s\-–—_/&,.()]+/).filter(Boolean);
+  if (parts.length === 1) {
+    const only = parts[0].replace(/[^\p{L}\p{N}]/gu, "");
+    return (only.slice(0, 2) || "?").toUpperCase();
+  }
+  const last = parts[parts.length - 1];
+  if (last.length <= 2 && /[0-9]/.test(last)) {
+    return (parts[0][0] + last).toUpperCase();
+  }
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
 /** Does a bookmark match a filter string? Matches its name, track, or artists. */
 export function bookmarkMatches(bm, query) {
   const q = String(query || "").trim().toLowerCase();

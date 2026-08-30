@@ -383,6 +383,71 @@ button.link {
   padding: 0.35rem 0.5rem;
 }
 
+.setting-group {
+  margin: 0.9rem 0 0;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.setting-group legend {
+  padding: 0 0.35rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.setting-hint {
+  margin: 0 0 0.7rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.tile-styles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem 0.5rem;
+}
+
+.tile-styles label,
+.tile-scope label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+
+.tile-styles input[type="radio"],
+.tile-scope input[type="radio"] {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.05rem;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.tile-preview {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.7rem 0;
+}
+
+.tile-preview img {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  display: block;
+  background: #2c2c2c;
+}
+
+.tile-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .status {
   min-height: 1.2em;
   font-size: 0.85rem;

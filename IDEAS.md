@@ -111,13 +111,25 @@ Original backlog #1–#12, plus everything added along the way:
     the UI is gated; the cover-art deep-link stays.
   - **Per-context cooldown** in `getContextMeta`: a 404 for the session, a
     429 for 15 min, any other failure for 10 min.
-- **Editorial-playlist bookmarks follow the song's art** — when Spotify
-  confirms a playlist has no cover we can read (`getContextMeta` now
-  returns `noCover: true` for a 404 or an empty `images`, vs leaving it
-  unset for a lookup that just failed), the bookmark's thumbnail tracks the
-  currently-bookmarked track's album art instead of freezing the first one.
-  Refreshes on the next save/auto-/follow-bookmark; a transient lookup
-  failure still keeps the stored image.
+- **`getContextMeta` reports `noCover`** — `true` for a 404 or an empty
+  `images` array (Spotify confirmed there's no cover), left unset when the
+  lookup just didn't complete. `buildBookmarkFromSnapshot` uses it to store
+  `imageUrl: null` for an editorial playlist (albums still fall back to
+  track art, which *is* the cover), so the bookmark list can tell "no
+  cover" from "have a cover" without a new Firestore field.
+- **Generated cover tiles** (`js/tiles.js`) — a playlist with no artwork
+  gets a tile drawn from its context id (fixes colour/shape) and name
+  (drawn on it), as a `data:` URL straight into the existing `<img>`.
+  Six styles — Flat, Gradient, Aurora, Equalizer, Risograph, Hairline —
+  picked in Settings, plus a scope radio: never / only when there's no
+  cover (default) / every playlist (replaces Spotify's cover too). All
+  render-time and per-device (`settings.tileStyle` / `.tileScope`), so
+  changing either just repaints — nothing stored, no migration. Albums are
+  never tiled. `monogram()` + `hashCode()` are pure and unit-tested in
+  `format.js`; the six draw functions and the data-URL cache are in
+  `tiles.js`. Studied in the "Playlist Tile Studio" artifact.
+  Pre-existing editorial bookmarks keep their stored track art until
+  re-saved (auto-/manual bookmark clears it to null).
 
 ## Left
 

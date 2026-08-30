@@ -91,6 +91,25 @@
               <option value="60000">60 seconds</option>
             </select>
           </label>
+
+          <fieldset class="setting-group">
+            <legend>Cover tile for playlists</legend>
+            <p class="setting-hint">Drawn from the playlist name when Spotify won't share artwork (its editorial mixes, or a playlist with no cover of its own).</p>
+            <div class="tile-styles">
+              <label><input type="radio" name="tile-style" value="flat" /><span>Flat</span></label>
+              <label><input type="radio" name="tile-style" value="gradient" /><span>Gradient</span></label>
+              <label><input type="radio" name="tile-style" value="aurora" /><span>Aurora</span></label>
+              <label><input type="radio" name="tile-style" value="equalizer" /><span>Equalizer</span></label>
+              <label><input type="radio" name="tile-style" value="riso" /><span>Risograph</span></label>
+              <label><input type="radio" name="tile-style" value="hairline" /><span>Hairline</span></label>
+            </div>
+            <div class="tile-preview" id="tile-preview" aria-hidden="true"></div>
+            <div class="tile-scope">
+              <label><input type="radio" name="tile-scope" value="never" /><span>Never — leave a blank tile where there's no cover art</span></label>
+              <label><input type="radio" name="tile-scope" value="nocover" /><span>Only when the playlist has no cover of its own</span></label>
+              <label><input type="radio" name="tile-scope" value="all" /><span>For every playlist — replace Spotify's cover too</span></label>
+            </div>
+          </fieldset>
         </div>
       </details>
 
