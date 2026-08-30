@@ -430,8 +430,10 @@ button.link {
 
 .tile-preview {
   display: flex;
+  align-items: center;
   gap: 0.4rem;
   margin: 0.7rem 0;
+  min-height: 44px;
 }
 
 .tile-preview img {
@@ -440,6 +442,11 @@ button.link {
   border-radius: 6px;
   display: block;
   background: #2c2c2c;
+}
+
+.tile-preview-note {
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 
 .tile-scope {

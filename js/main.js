@@ -57,7 +57,7 @@ const el = {
   followBookmarkToggle: document.getElementById("follow-bookmark-toggle"),
   pollIntervalSelect: document.getElementById("poll-interval-select"),
   tileStyleInputs: document.querySelectorAll('input[name="tile-style"]'),
-  tileScopeInputs: document.querySelectorAll('input[name="tile-scope"]'),
+  tileApplyInputs: document.querySelectorAll('input[name="tile-apply"]'),
   tilePreview: document.getElementById("tile-preview"),
   updateBanner: document.getElementById("update-banner"),
   updateVersion: document.getElementById("update-version"),
@@ -69,7 +69,12 @@ const el = {
 // apply when nothing is stored yet (auto-bookmark on, config's poll interval).
 const SETTINGS_KEY = "playlist-resume-settings";
 
-const TILE_SCOPES = ["never", "nocover", "all"];
+// Playlist tile: which image to draw, and when to use it. tileStyle is one
+// of the six generated styles, or the two pseudo-styles "song" (the saved
+// track's album art) and "blank" (nothing). tileApply is "always" (use it
+// even when the playlist has a real cover) or "nocover" (fallback only).
+const TILE_MODES = [...TILE_STYLES.map((s) => s.id), "song", "blank"];
+const TILE_APPLY = ["always", "nocover"];
 
 function loadSettings() {
   const defaults = {
@@ -77,10 +82,20 @@ function loadSettings() {
     followBookmark: false,
     pollIntervalMs: POLL_INTERVAL_MS,
     tileStyle: DEFAULT_TILE_STYLE,
-    tileScope: "nocover",
+    tileApply: "nocover",
   };
   try {
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    let tileStyle = TILE_MODES.includes(stored.tileStyle) ? stored.tileStyle : defaults.tileStyle;
+    let tileApply = TILE_APPLY.includes(stored.tileApply) ? stored.tileApply : null;
+    if (!tileApply) {
+      // Migrate the old 3-way tileScope (never | nocover | all).
+      if (stored.tileScope === "all") tileApply = "always";
+      else if (stored.tileScope === "never") {
+        tileStyle = "blank";
+        tileApply = "nocover";
+      } else tileApply = defaults.tileApply;
+    }
     return {
       autoBookmark:
         typeof stored.autoBookmark === "boolean" ? stored.autoBookmark : defaults.autoBookmark,
@@ -90,10 +105,8 @@ function loadSettings() {
         Number.isFinite(stored.pollIntervalMs) && stored.pollIntervalMs >= 1000
           ? stored.pollIntervalMs
           : defaults.pollIntervalMs,
-      tileStyle: TILE_STYLES.some((s) => s.id === stored.tileStyle)
-        ? stored.tileStyle
-        : defaults.tileStyle,
-      tileScope: TILE_SCOPES.includes(stored.tileScope) ? stored.tileScope : defaults.tileScope,
+      tileStyle,
+      tileApply,
     };
   } catch {
     return defaults;
@@ -339,6 +352,9 @@ async function buildBookmarkFromSnapshot(snapshot) {
     // Playlists with no readable cover stay null on purpose (the list draws
     // a tile); albums fall back to the track art, which *is* the cover.
     imageUrl: coverUrl ?? (type === "album" ? snapshot.track.imageUrl ?? null : null),
+    // The saved track's own art, always — the tile setting can show this
+    // instead of a generated tile for a playlist with no cover.
+    trackImageUrl: snapshot.track.imageUrl ?? null,
     trackId: snapshot.track.id,
     trackUri: snapshot.track.uri,
     trackName: snapshot.track.name,
@@ -370,27 +386,38 @@ async function refreshBookmarkList() {
 }
 
 /**
- * The image for a bookmark's tile. A real cover (Spotify's, or an album's
- * art) is used when it exists and Settings allow it; otherwise a generated
- * placeholder keyed on the stable context id (see js/tiles.js), or nothing.
- * Only playlists ever get a generated tile — albums always have real art.
+ * The image for a bookmark's tile. Albums always show their real art. For a
+ * playlist, the tile setting (`tileStyle` / `tileApply`) decides: a real
+ * Spotify cover, the saved track's art, a generated tile keyed on the stable
+ * context id (see js/tiles.js), or nothing.
  */
 function bookmarkArtUrl(bm) {
-  const isPlaylist = bm.contextType === "playlist";
-  const tile = () =>
-    tileDataUrl(settings.tileStyle, bm.contextId || bm.id, bookmarkName(bm));
+  if (bm.contextType !== "playlist") return bm.imageUrl || null;
 
-  if (isPlaylist && settings.tileScope === "all") return tile();
-  if (bm.imageUrl) return bm.imageUrl;
-  if (isPlaylist && settings.tileScope === "nocover") return tile();
-  return null;
+  const chosen = () => {
+    if (settings.tileStyle === "blank") return null;
+    if (settings.tileStyle === "song") return bm.trackImageUrl || bm.imageUrl || null;
+    return tileDataUrl(settings.tileStyle, bm.contextId || bm.id, bookmarkName(bm));
+  };
+
+  if (settings.tileApply === "always") return chosen();
+  return bm.imageUrl || chosen();
 }
 
 const TILE_PREVIEW_NAMES = ["Discover Weekly", "Deep Focus", "Rainy Day"];
 
-/** Redraw the little sample tiles under the style picker in Settings. */
+/** Redraw the sample under the style picker in Settings. */
 function updateTilePreview() {
   if (!el.tilePreview) return;
+  if (settings.tileStyle === "blank") {
+    el.tilePreview.innerHTML = `<span class="tile-preview-note">Leaves the tile empty.</span>`;
+    return;
+  }
+  if (settings.tileStyle === "song") {
+    el.tilePreview.innerHTML =
+      `<span class="tile-preview-note">Shows the saved track's album art.</span>`;
+    return;
+  }
   el.tilePreview.innerHTML = TILE_PREVIEW_NAMES.map((n) => {
     const url = tileDataUrl(settings.tileStyle, n, n, 44);
     return `<img src="${url}" alt="" width="44" height="44" />`;
@@ -1209,14 +1236,14 @@ async function init() {
       settings.tileStyle = input.value;
       saveSettings();
       updateTilePreview();
-      renderBookmarks(); // tiles are drawn at render time — just repaint
+      renderBookmarks(); // tiles are chosen at render time — just repaint
     });
   }
-  for (const input of el.tileScopeInputs) {
-    input.checked = input.value === settings.tileScope;
+  for (const input of el.tileApplyInputs) {
+    input.checked = input.value === settings.tileApply;
     input.addEventListener("change", () => {
       if (!input.checked) return;
-      settings.tileScope = input.value;
+      settings.tileApply = input.value;
       saveSettings();
       renderBookmarks();
     });

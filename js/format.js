@@ -195,7 +195,8 @@ export function bookmarkUsedMs(bm) {
 // set fresh on import).
 export const EXPORT_FIELDS = [
   "contextType", "contextId", "contextUri", "contextName", "customName",
-  "imageUrl", "trackId", "trackUri", "trackName", "artists", "positionMs",
+  "imageUrl", "trackImageUrl", "trackId", "trackUri", "trackName", "artists",
+  "positionMs",
 ];
 
 /**
@@ -223,6 +224,7 @@ export function buildImportBookmark(raw) {
     contextName: str(raw.contextName, 300) || `Unknown ${type}`,
     customName: str(raw.customName, 200) || null,
     imageUrl: str(raw.imageUrl, 500) || null,
+    trackImageUrl: str(raw.trackImageUrl, 500) || null,
     trackId,
     trackUri,
     trackName: str(raw.trackName, 500) || "",

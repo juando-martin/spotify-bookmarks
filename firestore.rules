@@ -22,8 +22,8 @@ service cloud.firestore {
       function isValidBookmark(d) {
         return d.keys().hasOnly([
                  'contextType', 'contextId', 'contextUri', 'contextName',
-                 'customName', 'imageUrl', 'trackId', 'trackUri', 'trackName',
-                 'artists', 'positionMs', 'updatedAt', 'lastUsedAt'
+                 'customName', 'imageUrl', 'trackImageUrl', 'trackId', 'trackUri',
+                 'trackName', 'artists', 'positionMs', 'updatedAt', 'lastUsedAt'
                ])
           && (!('contextType' in d) || d.contextType in ['playlist', 'album'])
           && (!('contextId'   in d) || (d.contextId   is string && d.contextId.size()   <= 100))
@@ -35,6 +35,7 @@ service cloud.firestore {
           && (!('artists'     in d) || (d.artists     is string && d.artists.size()     <= 1000))
           && (!('customName'  in d) || d.customName == null || (d.customName is string && d.customName.size() <= 200))
           && (!('imageUrl'    in d) || d.imageUrl == null    || (d.imageUrl   is string && d.imageUrl.size()   <= 500))
+          && (!('trackImageUrl' in d) || d.trackImageUrl == null || (d.trackImageUrl is string && d.trackImageUrl.size() <= 500))
           && (!('positionMs'  in d) || (d.positionMs is number && d.positionMs >= 0 && d.positionMs <= 86400000))
           && (!('updatedAt'   in d) || d.updatedAt  is timestamp)
           && (!('lastUsedAt'  in d) || d.lastUsedAt is timestamp);

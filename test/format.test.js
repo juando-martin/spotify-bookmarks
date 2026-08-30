@@ -245,6 +245,7 @@ const goodEntry = {
   contextName: "My Mix",
   customName: "Dido Mix",
   imageUrl: "https://i.scdn.co/image/abc",
+  trackImageUrl: "https://i.scdn.co/image/track1",
   trackId: "T1",
   trackUri: "spotify:track:T1",
   trackName: "Thank You",
@@ -276,6 +277,7 @@ test("buildImportBookmark fills defaults and clamps oddities", () => {
   assert.equal(b.contextName, "Unknown album");
   assert.equal(b.customName, null);
   assert.equal(b.imageUrl, null);
+  assert.equal(b.trackImageUrl, null);
   assert.equal(b.trackName, "");
   assert.equal(b.artists, "");
   assert.equal(b.positionMs, 0);
@@ -288,7 +290,8 @@ test("buildImportBookmark output has only the whitelisted fields", () => {
   const b = buildImportBookmark({ ...goodEntry, junk: "drop me", updatedAt: 1 });
   assert.deepEqual(Object.keys(b).sort(), [
     "artists", "contextId", "contextName", "contextType", "contextUri",
-    "customName", "imageUrl", "positionMs", "trackId", "trackName", "trackUri",
+    "customName", "imageUrl", "positionMs", "trackId", "trackImageUrl",
+    "trackName", "trackUri",
   ]);
 });
 

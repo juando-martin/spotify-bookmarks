@@ -117,19 +117,24 @@ Original backlog #1–#12, plus everything added along the way:
   `imageUrl: null` for an editorial playlist (albums still fall back to
   track art, which *is* the cover), so the bookmark list can tell "no
   cover" from "have a cover" without a new Firestore field.
-- **Generated cover tiles** (`js/tiles.js`) — a playlist with no artwork
-  gets a tile drawn from its context id (fixes colour/shape) and name
-  (drawn on it), as a `data:` URL straight into the existing `<img>`.
-  Six styles — Flat, Gradient, Aurora, Equalizer, Risograph, Hairline —
-  picked in Settings, plus a scope radio: never / only when there's no
-  cover (default) / every playlist (replaces Spotify's cover too). All
-  render-time and per-device (`settings.tileStyle` / `.tileScope`), so
-  changing either just repaints — nothing stored, no migration. Albums are
-  never tiled. `monogram()` + `hashCode()` are pure and unit-tested in
-  `format.js`; the six draw functions and the data-URL cache are in
-  `tiles.js`. Studied in the "Playlist Tile Studio" artifact.
-  Pre-existing editorial bookmarks keep their stored track art until
-  re-saved (auto-/manual bookmark clears it to null).
+- **Playlist tiles** (`js/tiles.js`) — a playlist Spotify won't give the
+  app artwork for gets a tile as a `data:` URL straight into the existing
+  `<img>`. **Settings → Playlist tile:** a style (six generated —
+  Flat, Gradient, Aurora, Equalizer, Risograph, Hairline — drawn from the
+  context id for colour/shape and the name for the monogram; or the
+  pseudo-styles **Song art** = the saved track's album art, **Blank** =
+  nothing) and an *apply* radio (**only when there's no cover** (default),
+  or **always**, overriding Spotify's cover). All render-time and
+  per-device (`settings.tileStyle` / `.tileApply`), so changing either just
+  repaints — nothing stored per bookmark, no migration. Albums are never
+  tiled. `monogram()` + `hashCode()` are pure and unit-tested in
+  `format.js`; the draw functions + data-URL cache are in `tiles.js`.
+  Studied in the "Playlist Tile Studio" artifact.
+- **`trackImageUrl` on the bookmark** — the saved track's own album art,
+  always stored (it's free, it's in every `/me/player` snapshot). Feeds the
+  "Song art" tile style. New whitelisted field in `firestore.rules`
+  (**re-paste + Publish**) and in `EXPORT_FIELDS`; old bookmarks lack it
+  until re-saved (Song art then falls back to blank for them).
 
 ## Left
 

@@ -93,8 +93,8 @@
           </label>
 
           <fieldset class="setting-group">
-            <legend>Cover tile for playlists</legend>
-            <p class="setting-hint">Drawn from the playlist name when Spotify won't share artwork (its editorial mixes, or a playlist with no cover of its own).</p>
+            <legend>Playlist tile</legend>
+            <p class="setting-hint">What to show for a playlist Spotify won't share artwork for (its editorial mixes, or a playlist with no cover of its own).</p>
             <div class="tile-styles">
               <label><input type="radio" name="tile-style" value="flat" /><span>Flat</span></label>
               <label><input type="radio" name="tile-style" value="gradient" /><span>Gradient</span></label>
@@ -102,12 +102,13 @@
               <label><input type="radio" name="tile-style" value="equalizer" /><span>Equalizer</span></label>
               <label><input type="radio" name="tile-style" value="riso" /><span>Risograph</span></label>
               <label><input type="radio" name="tile-style" value="hairline" /><span>Hairline</span></label>
+              <label><input type="radio" name="tile-style" value="song" /><span>Song art</span></label>
+              <label><input type="radio" name="tile-style" value="blank" /><span>Blank</span></label>
             </div>
             <div class="tile-preview" id="tile-preview" aria-hidden="true"></div>
             <div class="tile-scope">
-              <label><input type="radio" name="tile-scope" value="never" /><span>Never — leave a blank tile where there's no cover art</span></label>
-              <label><input type="radio" name="tile-scope" value="nocover" /><span>Only when the playlist has no cover of its own</span></label>
-              <label><input type="radio" name="tile-scope" value="all" /><span>For every playlist — replace Spotify's cover too</span></label>
+              <label><input type="radio" name="tile-apply" value="nocover" /><span>Only when the playlist has no cover of its own</span></label>
+              <label><input type="radio" name="tile-apply" value="always" /><span>Always — use it even when the playlist has a cover</span></label>
             </div>
           </fieldset>
         </div>
