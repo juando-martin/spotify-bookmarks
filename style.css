@@ -53,6 +53,25 @@ main {
   margin: 0 0 0.75rem;
 }
 
+#config-error-view p {
+  margin: 0 0 0.6rem;
+}
+
+#config-error-view code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.85em;
+}
+
+#config-error-problems {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
 /* Foldable card (<details class="card">). Note: setting `display` on the
    <summary> itself removes its disclosure behaviour, so the flex layout
    goes on the inner <h2> and the marker is only hidden via list-style. */

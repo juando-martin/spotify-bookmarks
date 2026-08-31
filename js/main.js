@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Juan D. Martin
-import { POLL_INTERVAL_MS } from "./config.js";
+import { POLL_INTERVAL_MS, applyRuntimeConfig } from "./config.js";
+import { loadRuntimeConfig, ConfigError } from "./runtimeConfig.js";
 import { APP_VERSION } from "./version.js";
 import {
   bookmarkMatches,
@@ -59,6 +60,8 @@ const el = {
   tileStyleInputs: document.querySelectorAll('input[name="tile-style"]'),
   tileApplyInputs: document.querySelectorAll('input[name="tile-apply"]'),
   tilePreview: document.getElementById("tile-preview"),
+  configErrorView: document.getElementById("config-error-view"),
+  configErrorProblems: document.getElementById("config-error-problems"),
   updateBanner: document.getElementById("update-banner"),
   updateVersion: document.getElementById("update-version"),
   updateReload: document.getElementById("update-reload"),
@@ -1177,6 +1180,29 @@ function handleSessionExpired() {
   showToast("Your Spotify session expired — log in again.", { ms: 8000 });
 }
 
+// config.json failed to load or validate — without the Spotify Client ID and
+// Firebase config the app can't reach either service. Show the setup screen
+// (index.html) with the specific problems, rather than a login button that
+// can't work. A fixed config.json takes effect on the next load.
+function showConfigError(err) {
+  console.error("Configuration error:", err);
+  el.loginView.hidden = true;
+  el.appView.hidden = true;
+  if (!el.configErrorView) {
+    // Cached HTML from before this screen existed — say it in a toast.
+    showToast("config.json is missing or invalid — see the README.", { ms: 12000 });
+    return;
+  }
+  el.configErrorView.hidden = false;
+  const problems = err instanceof ConfigError ? err.problems : [];
+  if (el.configErrorProblems) {
+    el.configErrorProblems.innerHTML = problems
+      .map((p) => `<li>${escapeHtml(p)}</li>`)
+      .join("");
+    el.configErrorProblems.hidden = problems.length === 0;
+  }
+}
+
 const COPYRIGHT = "© 2026 Juan D. Martin";
 
 async function init() {
@@ -1193,6 +1219,17 @@ async function init() {
     navigator.serviceWorker
       .register("sw.js", { updateViaCache: "none" })
       .catch((err) => console.error("SW registration failed:", err));
+  }
+
+  // Everything past here needs the Spotify Client ID and Firebase config from
+  // ./config.json. If it's missing or malformed, show the setup screen and
+  // stop — the update banner and SW are already wired above, so pushing a
+  // fixed config.json still gets picked up.
+  try {
+    applyRuntimeConfig(await loadRuntimeConfig());
+  } catch (err) {
+    showConfigError(err);
+    return;
   }
 
   el.loginBtn.addEventListener("click", loginWithSpotify);

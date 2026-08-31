@@ -1,0 +1,13 @@
+{
+  "spotify": {
+    "clientId": "4200a9cd06554ab98c15a4b094a2fb66"
+  },
+  "firebase": {
+    "apiKey": "AIzaSyCtjNEnrjI4fuW2FFC_TSjvU1WYliLDTUE",
+    "authDomain": "spotify-bookmarks-9c71d.firebaseapp.com",
+    "projectId": "spotify-bookmarks-9c71d",
+    "storageBucket": "spotify-bookmarks-9c71d.firebasestorage.app",
+    "messagingSenderId": "812556382600",
+    "appId": "1:812556382600:web:c26b880d32987775350a3d"
+  }
+}

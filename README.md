@@ -8,7 +8,9 @@ Static site (plain ES modules, no build step), hosted on GitHub Pages, with
 Firestore for bookmark storage and Spotify's Web API + PKCE OAuth for
 playback. Running your own copy needs your own Spotify app credentials, a
 Firebase project, and a hosted URL — the four setup steps below, once, then
-it's a normal `git push` to deploy.
+it's a normal `git push` to deploy. Your credentials go in `config.json`
+(loaded at runtime, not baked into the bundle), so rotating a Client ID or
+moving Firebase projects later is a one-file edit — no version bump.
 
 ## Features
 
@@ -48,7 +50,7 @@ Deeper detail on each, plus the constraints, is in
 ## Setup
 
 Do these once. If you're picking this up mid-way, start at step 1 (or step 3
-if credentials are already in `js/config.js` and only hosting is left).
+if credentials are already in `config.json` and only hosting is left).
 
 ### 1. Spotify Developer Dashboard
 
@@ -62,8 +64,8 @@ if credentials are already in `js/config.js` and only hosting is left).
    ```
    You can add this now and come back to fix it if the exact URL changes.
 4. Under **Which API/SDKs are you planning to use?**, check **Web API**.
-5. Save. Open the app's **Settings** and copy the **Client ID** — paste it
-   into `js/config.js` as `SPOTIFY_CONFIG.clientId`.
+5. Save. Open the app's **Settings** and copy the **Client ID** — you'll
+   paste it into `config.json` as `spotify.clientId` in step 4.
 6. Note: new Spotify apps start in **Development Mode**, capped at ~25
    allowlisted users (Dashboard → your app → **User Management**). That's
    fine for personal use; add a few emails there if you want to share with
@@ -81,15 +83,37 @@ if credentials are already in `js/config.js` and only hosting is left).
    against random internet writes — see the comment at the top of
    `js/firebaseBookmarks.js` for what this does and doesn't protect.)
 5. Go to **Project settings → General → Your apps**, click the web icon
-   (`</>`) to register a web app (no Firebase Hosting needed), and copy the
-   resulting config object's values into `js/config.js`'s `FIREBASE_CONFIG`.
+   (`</>`) to register a web app (no Firebase Hosting needed), and keep the
+   resulting config object's values handy for the `firebase` block of
+   `config.json` in step 4.
+6. **Restrict the browser API key.** The Firebase web `apiKey` is public by
+   design (access is controlled by `firestore.rules` + anonymous auth, not
+   by hiding the key — GitHub's secret scanner flags it anyway, mark that a
+   false positive), but scope it to your domain so a copied key is useless
+   elsewhere. In the Google Cloud console for the same project
+   (**APIs & Services → Credentials → "Browser key (auto created by
+   Firebase)"**):
+   - **Application restrictions → Websites** — add
+     `<your-username>.github.io/*` and `localhost/*` (referrer
+     restrictions apply to Firebase Auth, so your dev origin must be
+     listed or `signInAnonymously` fails locally).
+   - **API restrictions → Restrict key** — *Identity Toolkit API*, *Token
+     Service API*, *Cloud Firestore API*, *Firebase Installations API*.
+     Firestore data access goes through the rules + auth token, not the
+     key, so this doesn't affect it.
+
+   Changes take a few minutes; then confirm login + a bookmark save still
+   work on the deployed site and locally.
 
 ### 3. GitHub Pages hosting
 
 GitHub Pages on the **free** plan only works with **public** repos (private
-repo Pages needs GitHub Pro/Team/Enterprise). That's fine here — `js/config.js`
+repo Pages needs GitHub Pro/Team/Enterprise). That's fine here — `config.json`
 only ever holds a Spotify Client ID and a Firebase web config, both meant to
-be public, not secrets — so keep the repo public unless you're on a paid plan.
+be public, not secrets (the Firebase key is domain-restricted in step 2.6) —
+so keep the repo public unless you're on a paid plan. (`config.json` is
+committed on purpose: Pages serves the repo directly with no build step, so
+an untracked file would never deploy.)
 
 From the Linux laptop, initialize and commit first:
 ```bash
@@ -124,9 +148,11 @@ Redirect URI matches the real deployed URL).
 
 ### 4. Fill in config and test
 
-1. Edit `js/config.js`: set `SPOTIFY_CONFIG.clientId` and all of
-   `FIREBASE_CONFIG`.
-2. Commit and push again.
+1. Copy `config.example.json` to `config.json` and fill in `spotify.clientId`
+   (from step 1) and every `firebase.*` value (from step 2). It's plain JSON,
+   no comments. The app validates it on load and shows a **"Setup needed"**
+   screen listing anything missing or malformed.
+2. Commit and push again (`config.json` is tracked — see step 3).
 3. Visit the GitHub Pages URL from your phone browser (or the laptop),
    click **Log in with Spotify**, and approve access.
 4. Play something from a playlist or album on any Spotify device, hit
@@ -337,6 +363,26 @@ Redirect URI matches the real deployed URL).
 - Names/covers for playlists that return 404 (Spotify's editorial Mixes) are
   negative-cached for the session, so a bookmark save doesn't re-request one
   that's known to be unreadable.
+- **Runtime config.** The Spotify Client ID and the Firebase web config load
+  from `./config.json` at startup (`js/runtimeConfig.js`), not from the JS
+  bundle — so if a Client ID is ever revoked, or you move to a new Firebase
+  project, you edit one JSON file and `git push`, with no `npm run bump`.
+  `config.json` is validated on load; anything missing or malformed (a
+  leftover `config.example.json` placeholder, a typo'd key) shows a **"Setup
+  needed"** screen listing the exact problems instead of a login button that
+  can't work. It's committed to the repo (Pages has no build step) and
+  listed in `sw.js`'s `SHELL_FILES`, so the service worker never caches a
+  shell that's newer than the config it needs — online, the network-first
+  worker still revalidates it every load. The `scopes` list and the poll
+  interval default stay in `js/config.js`: changing scopes forces every user
+  to re-consent, so it's deliberately a code change.
+- **The Firebase `apiKey` in `config.json` is not a secret.** It's a public
+  project identifier that ships in every Firebase web app; access is
+  controlled by `firestore.rules` + the anonymous-auth gate, and the key is
+  restricted to the deploy domain + `localhost` in the Google Cloud console
+  (step 2.6). GitHub's secret scanner still flags the `AIza…` prefix — a
+  known false positive for Firebase web keys; dismiss the alert as such.
+  Same for the Spotify Client ID (a PKCE app has no client secret).
 
 ## File layout
 
@@ -346,7 +392,10 @@ style.css                Styling
 manifest.json            PWA manifest (Android "Add to Home Screen")
 sw.js                     Service worker — network-first shell cache (offline fallback only)
 firestore.rules           Firestore security rules to paste into the Firebase console
-js/config.js              YOUR Spotify + Firebase config (fill in per steps above)
+config.json               YOUR Spotify Client ID + Firebase web config (fill in per steps above)
+config.example.json       Template for config.json — copy and fill in
+js/config.js              Static config: OAuth scopes, redirect URI, poll-interval default
+js/runtimeConfig.js       Loads + validates config.json at startup (unit-tested)
 js/pkce.js                PKCE code_verifier/code_challenge helpers
 js/auth.js                Spotify OAuth login/redirect/token refresh (shared single-flight)
 js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, transport, devices, playlist/album meta)
@@ -359,6 +408,7 @@ js/main.js                Wires it all together: UI, polling loop, auto-bookmark
 test/format.test.js       Unit tests for js/format.js
 test/rateLimit.test.js    Unit tests for the 429 back-off (injected clock + fake storage)
 test/rules.test.js        Asserts the client's bookmark fields all pass firestore.rules
+test/runtimeConfig.test.js  config.json validation + load (mocked fetch), and the shipped config files
 icons/                    App icons for the PWA manifest
 ```
 
@@ -367,8 +417,8 @@ icons/                    App icons for the PWA manifest
 No build step — it's plain ES modules served as files. To run the unit tests
 (`js/format.js` helpers, `normalizePlaybackState`, the bookmark sort key, the
 429 wait math + the `js/rateLimit.js` back-off state machine, the tile
-monogram, and a check that the client's bookmark fields all pass
-`firestore.rules`):
+monogram, a check that the client's bookmark fields all pass
+`firestore.rules`, and the `config.json` loader + validator):
 
 ```bash
 npm test        # == node --test  (needs Node 18+, no dependencies)

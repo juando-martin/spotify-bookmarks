@@ -1,19 +1,25 @@
 // Copyright (c) 2026 Juan D. Martin
 // ---------------------------------------------------------------------------
-// Fill these in after you complete the Spotify Developer Dashboard and
-// Firebase setup steps in README.md. Nothing here is a true secret (this is
-// a client-side PKCE app, and Firebase web config is meant to be public —
-// access is controlled by Firestore security rules, not by hiding this
-// object) but it does have to be YOUR real values or nothing will work.
+// Static config, plus the bridge that fills in the runtime values.
+//
+// The two values that change over a deployment's life — the Spotify Client
+// ID and the Firebase web config — are NOT baked in here any more. They load
+// from ./config.json at startup (see js/runtimeConfig.js), so rotating a
+// revoked Client ID or moving to a new Firebase project is a one-file edit
+// with no version bump. main.js calls applyRuntimeConfig() once, before auth
+// or Firestore read either object.
+//
+// Nothing here or in config.json is a true secret: this is a client-side
+// PKCE app (no client secret) and the Firebase web config is meant to be
+// public — access is controlled by firestore.rules, not by hiding it.
 // ---------------------------------------------------------------------------
 
 export const SPOTIFY_CONFIG = {
-  // From developer.spotify.com/dashboard -> your app -> Client ID
-  clientId: "4200a9cd06554ab98c15a4b094a2fb66",
+  // Filled in by applyRuntimeConfig() from config.json's spotify.clientId.
+  clientId: null,
 
-  // Must exactly match a Redirect URI registered on the Spotify app.
-  // Once deployed to GitHub Pages this will look like:
-  //   https://<your-username>.github.io/spotify-bookmarks/
+  // Always the app's own URL — must exactly match a Redirect URI registered
+  // on the Spotify app. Computed here, never configured.
   redirectUri: window.location.origin + window.location.pathname,
 
   // Scopes: read playback state, start/resume playback, and read the names
@@ -21,7 +27,7 @@ export const SPOTIFY_CONFIG = {
   // scope, but Spotify returns 404 — not 403 — for private ones without it,
   // which is why the playlist name would otherwise come back blank).
   // Changing this list means existing logins must log out and back in to
-  // re-consent.
+  // re-consent, so it stays in code, not in config.json.
   scopes: [
     "user-read-playback-state",
     "user-read-currently-playing",
@@ -31,16 +37,20 @@ export const SPOTIFY_CONFIG = {
   ].join(" "),
 };
 
-// From the Firebase console -> Project settings -> General -> Your apps -> SDK setup and configuration
-export const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyCtjNEnrjI4fuW2FFC_TSjvU1WYliLDTUE",
-  authDomain: "spotify-bookmarks-9c71d.firebaseapp.com",
-  projectId: "spotify-bookmarks-9c71d",
-  storageBucket: "spotify-bookmarks-9c71d.firebasestorage.app",
-  messagingSenderId: "812556382600",
-  appId: "1:812556382600:web:c26b880d32987775350a3d",
-};
+// Filled in by applyRuntimeConfig() from config.json's firebase object.
+export const FIREBASE_CONFIG = {};
+
+/**
+ * Copy a validated runtime config (the resolved value of loadRuntimeConfig()
+ * in js/runtimeConfig.js) into the exported objects above. Called once by
+ * main.js during startup, before anything reads them.
+ */
+export function applyRuntimeConfig({ spotify, firebase }) {
+  SPOTIFY_CONFIG.clientId = spotify.clientId;
+  Object.assign(FIREBASE_CONFIG, firebase);
+}
 
 // How often to poll Spotify's "now playing" endpoint, in milliseconds.
 // 5s is a reasonable balance between responsiveness and rate limits.
+// Settings overrides this per device; this is only the pre-touch default.
 export const POLL_INTERVAL_MS = 5000;

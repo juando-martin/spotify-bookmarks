@@ -23,6 +23,13 @@
       <button id="login-btn" class="primary">Log in with Spotify</button>
     </section>
 
+    <section id="config-error-view" class="card" hidden>
+      <h2>Setup needed</h2>
+      <p><code>config.json</code> is missing or invalid, so the app can't reach Spotify or Firebase.</p>
+      <p>Copy <code>config.example.json</code> to <code>config.json</code> and fill in your Spotify Client ID and Firebase web config — see the <strong>Setup</strong> section of the README.</p>
+      <ul id="config-error-problems" hidden></ul>
+    </section>
+
     <section id="app-view" hidden>
       <div class="row between">
         <span id="user-greeting"></span>

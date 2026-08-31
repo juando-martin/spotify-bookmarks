@@ -154,6 +154,21 @@ Original backlog #1–#12, plus everything added along the way:
   `myspot:sessionexpired` window event; `main.js` drops to the login view
   with "Your Spotify session expired — log in again" instead of leaving the
   app stuck behind a misleading "reload to try again".
+- **Runtime config (`config.json`)** — the Spotify Client ID and Firebase
+  web config moved out of the JS bundle into `./config.json`, fetched and
+  validated at startup (`js/runtimeConfig.js` → `applyRuntimeConfig()` in
+  `js/config.js`). Rotating a revoked Client ID or switching Firebase
+  projects is now a one-file edit + `git push`, no `npm run bump`.
+  `config.json` is committed (Pages has no build step) and in `sw.js`
+  `SHELL_FILES` so the worker can't cache a shell newer than its config;
+  network-first still revalidates it every online load. An invalid or
+  missing `config.json` (leftover `config.example.json` placeholder, typo'd
+  key) shows a **"Setup needed"** screen in `index.html` listing the exact
+  problems — no silent fallback to someone else's backend. `scopes` +
+  poll-interval default stay in `js/config.js` (a scope change forces
+  re-consent, so it's deliberately code). `test/runtimeConfig.test.js`
+  covers `validateConfig`, `loadRuntimeConfig` (mocked fetch), and asserts
+  the two shipped config files.
 - **Per-bookmark ↻ refresh** — an icon next to ✎ re-asks Spotify for the
   playlist's real name + cover (`getContextMeta(..., { force: true })`
   bypasses the session cache + cooldown, not a confirmed 404 or the rate
