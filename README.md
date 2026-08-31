@@ -242,6 +242,17 @@ Redirect URI matches the real deployed URL).
   too. This is the fix for the editorial-playlist case above: the playlist
   ID is stable (Discover Weekly keeps the same URI forever, only its
   contents rotate), so a name you set once sticks.
+- Next to ✎ is a **↻ refresh** control — re-asks Spotify for the playlist's
+  real name and cover (bypassing the session cache and the failure
+  cooldown, but not a confirmed 404 or the rate-limit pause) and, for an
+  old bookmark, backfills the saved track's art via `GET /tracks/{id}`.
+  Merges just the changed fields; doesn't touch the saved spot or the
+  ordering. Use it to unstick an "Unknown playlist" or a blank Song-art
+  tile without replaying the playlist.
+- If the Spotify **refresh token** is finally rejected (revoked, or long
+  unused), the app clears its tokens, drops to the login screen, and shows
+  "Your Spotify session expired — log in again". A reload wouldn't help;
+  this is the clean path.
 - If Spotify rate-limits a request (HTTP 429), the API wrapper stops making
   requests entirely until it's safe again. It honours the `Retry-After`
   header **in full** (Spotify sends anything from seconds to an hour for a
@@ -253,8 +264,9 @@ Redirect URI matches the real deployed URL).
   deadline is persisted to `localStorage` (`myspot:rl`, re-read every check
   so a 429 in one tab pauses the others, capped at 1h when recovered from
   storage) so a reload or service-worker update still waits it out. A toast
-  tells you (at most once a minute). It recovers on its own. The wait math
-  is `rateLimitWaitSeconds()` in `js/format.js` (unit-tested).
+  tells you (at most once a minute). It recovers on its own. The whole
+  state machine is `createRateLimiter()` in `js/rateLimit.js` and the wait
+  math is `rateLimitWaitSeconds()` in `js/format.js` — both unit-tested.
 - A playlist whose name/cover can't be read is backed off so it isn't
   re-requested on the next save: a 404 (editorial playlist) for the rest of
   the session, a 429 for 15 minutes, any other failure for 10 minutes.
@@ -337,21 +349,26 @@ firestore.rules           Firestore security rules to paste into the Firebase co
 js/config.js              YOUR Spotify + Firebase config (fill in per steps above)
 js/pkce.js                PKCE code_verifier/code_challenge helpers
 js/auth.js                Spotify OAuth login/redirect/token refresh (shared single-flight)
-js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, transport, devices, playlist/album meta; 429 backoff)
+js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, transport, devices, playlist/album meta)
+js/rateLimit.js           The 429 back-off state machine (persisted deadline, escalation, cross-tab) — unit-tested
 js/format.js              Pure helpers: formatting, playback-state normalization, tile monogram + hash, 429 wait math (unit-tested)
 js/tiles.js               Generated placeholder cover tiles — canvas → data URL, six styles
 js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist/album per user)
 js/version.js             APP_VERSION string — bump with sw.js CACHE_NAME each deploy
 js/main.js                Wires it all together: UI, polling loop, auto-bookmark
 test/format.test.js       Unit tests for js/format.js
+test/rateLimit.test.js    Unit tests for the 429 back-off (injected clock + fake storage)
+test/rules.test.js        Asserts the client's bookmark fields all pass firestore.rules
 icons/                    App icons for the PWA manifest
 ```
 
 ## Development
 
 No build step — it's plain ES modules served as files. To run the unit tests
-(they cover `js/format.js`: formatting helpers, `normalizePlaybackState`, the
-bookmark sort key, the 429 back-off math, the tile monogram):
+(`js/format.js` helpers, `normalizePlaybackState`, the bookmark sort key, the
+429 wait math + the `js/rateLimit.js` back-off state machine, the tile
+monogram, and a check that the client's bookmark fields all pass
+`firestore.rules`):
 
 ```bash
 npm test        # == node --test  (needs Node 18+, no dependencies)

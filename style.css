@@ -553,14 +553,21 @@ button.link {
   color: var(--muted);
 }
 
-.rename-btn {
-  margin-left: auto;
+.rename-btn,
+.refresh-btn {
   background: none;
   border: none;
   padding: 0.1rem 0.3rem;
   color: var(--muted);
   font-size: 0.85rem;
   line-height: 1;
+  cursor: pointer;
+}
+
+/* Push the icon-button group to the right edge of the name row. */
+.refresh-btn {
+  margin-left: auto;
+  font-size: 0.95rem;
 }
 
 .rename-input {

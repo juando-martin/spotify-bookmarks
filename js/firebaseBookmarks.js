@@ -119,6 +119,16 @@ export async function renameBookmark(spotifyUserId, key, customName) {
   );
 }
 
+/**
+ * Merge a few metadata fields (name, artwork) onto an existing bookmark
+ * without touching its saved spot or timestamps — the manual "refresh info"
+ * action. `fields` must only contain rule-whitelisted keys.
+ */
+export async function updateBookmarkFields(spotifyUserId, key, fields) {
+  await ensureReady();
+  await setDoc(contextDocRef(spotifyUserId, key), fields, { merge: true });
+}
+
 /** All of this user's bookmarks, one per context, most recently used first. */
 export async function listBookmarks(spotifyUserId) {
   await ensureReady();

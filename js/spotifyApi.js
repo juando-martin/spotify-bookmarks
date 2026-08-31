@@ -2,7 +2,8 @@
 // Thin wrapper around the Spotify Web API endpoints this app needs.
 
 import { getAccessToken } from "./auth.js";
-import { normalizePlaybackState, smallestImageUrl, rateLimitWaitSeconds } from "./format.js";
+import { normalizePlaybackState, smallestImageUrl } from "./format.js";
+import { createRateLimiter } from "./rateLimit.js";
 
 const API_BASE = "https://api.spotify.com/v1";
 const contextMetaCache = new Map();
@@ -12,78 +13,18 @@ const unreadableContexts = new Set();
 // cacheKey -> timestamp to retry after, for non-404 getContextMeta failures.
 const contextMetaCooldown = new Map();
 
-// Spotify rate-limits per app on a rolling window. When we hit a 429, stop
-// making requests entirely until the window passes — retrying each call
-// individually just digs the hole deeper and freezes the whole app.
-//
-// The deadline is persisted: a reload (or a service-worker update) would
-// otherwise reset it to 0 and immediately fire a poll straight into the
-// penalty window, which keeps the app flagged and the window from ever
-// resetting. This is what turned a brief 429 into a multi-hour lockout.
-const RATE_LIMIT_KEY = "myspot:rl";
-// A deadline recovered from storage (a reload, or another tab) is only
-// trusted for up to an hour from now: we can't be sure it's still real,
-// and probing a genuinely-limited API once an hour is harmless. A 429 this
-// session set live still holds its full Retry-After in memory.
-const PERSISTED_MAX_MS = 3_600_000;
-
-try {
-  localStorage.removeItem("myspot:rateLimitedUntil"); // pre-v42 key — drop stale values
-} catch {
-  /* ignore */
-}
-
-const cappedPersisted = (raw) =>
-  Number.isFinite(raw) && raw > Date.now()
-    ? Math.min(raw, Date.now() + PERSISTED_MAX_MS)
-    : 0;
-
-let rateLimitedUntil = 0;
-try {
-  rateLimitedUntil = cappedPersisted(Number(localStorage.getItem(RATE_LIMIT_KEY)));
-} catch {
-  /* private mode / storage disabled — in-memory only */
-}
-
-function setRateLimitedUntil(ts) {
-  rateLimitedUntil = ts;
-  try {
-    if (ts > Date.now()) localStorage.setItem(RATE_LIMIT_KEY, String(ts));
-    else localStorage.removeItem(RATE_LIMIT_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
-// The effective deadline: the later of this context's value and whatever
-// another tab has persisted (capped — see PERSISTED_MAX_MS). Reading
-// storage on every check, not just at load, means a 429 in one tab pauses
-// every other open tab too.
-function rateLimitDeadline() {
-  try {
-    const stored = cappedPersisted(Number(localStorage.getItem(RATE_LIMIT_KEY)));
-    if (stored > rateLimitedUntil) rateLimitedUntil = stored;
-  } catch {
-    /* ignore */
-  }
-  return rateLimitedUntil;
-}
-
-// How persistent the 429s are. Spotify ratchets a misbehaving app's
-// penalty up the longer it keeps seeing traffic, so we ratchet our own
-// wait up to match — each 429 doubles the floor. The streak only really
-// clears once we've gone RATE_LIMIT_CALM_MS with no 429 at all: a single
-// endpoint being limited (e.g. /playlists while /me/player still answers)
-// must not let those steady 200s reset the escalation every poll.
-const RATE_LIMIT_CALM_MS = 5 * 60_000;
-let rateLimitStreak = 0;
-let lastRateLimitAt = 0;
+// Spotify rate-limits per app on a rolling window. On a 429 we stop making
+// requests entirely until it passes — retrying individual calls just digs
+// the hole deeper and freezes the whole app. The state machine (persisted
+// deadline, escalation, cross-tab read, 1h cap on a recovered value) lives
+// in ./rateLimit.js, unit-tested.
+const limiter = createRateLimiter();
 
 /** Milliseconds until it's safe to hit the API again (0 when clear). */
-export const rateLimitedForMs = () => Math.max(0, rateLimitDeadline() - Date.now());
+export const rateLimitedForMs = () => limiter.waitMs();
 
 async function apiFetch(path, options = {}, attempt = 0) {
-  if (Date.now() < rateLimitDeadline()) {
+  if (limiter.blocked()) {
     return new Response(null, { status: 429, statusText: "Rate limited (backing off)" });
   }
 
@@ -96,13 +37,7 @@ async function apiFetch(path, options = {}, attempt = 0) {
     },
   });
 
-  if (res.ok && rateLimitedUntil <= Date.now()) {
-    // Not racing ahead of a backoff we just set. Clear the deadline, but
-    // only drop the escalation streak once the 429s have actually stopped
-    // for a while — otherwise one healthy endpoint resets it every poll.
-    if (rateLimitedUntil) setRateLimitedUntil(0);
-    if (Date.now() - lastRateLimitAt > RATE_LIMIT_CALM_MS) rateLimitStreak = 0;
-  }
+  if (res.ok) limiter.onOk();
 
   if (res.status === 401 && attempt === 0) {
     // Token rejected — force a refresh (not just a re-read of the cached
@@ -112,20 +47,10 @@ async function apiFetch(path, options = {}, attempt = 0) {
   }
 
   if (res.status === 429) {
-    // Don't retry — just note when it's safe to make requests again. Every
-    // apiFetch above short-circuits until then, so the poll loop pauses
-    // instead of hammering. rateLimitWaitSeconds() (in format.js, unit-
-    // tested) honours Retry-After in full and escalates each repeat 429;
-    // poking the API before it's up just re-arms Spotify's penalty, which
-    // is how the app stayed locked out for hours. A clean response resets
-    // the streak.
-    rateLimitStreak += 1;
-    lastRateLimitAt = Date.now();
-    const waitS = rateLimitWaitSeconds(
-      Number(res.headers.get("Retry-After")),
-      rateLimitStreak,
-    );
-    setRateLimitedUntil(Date.now() + waitS * 1000);
+    // Don't retry — just record when it's safe again. Every apiFetch above
+    // short-circuits until then, so the poll loop pauses instead of
+    // hammering; poking the API before it's up re-arms Spotify's penalty.
+    const waitS = limiter.on429(Number(res.headers.get("Retry-After")));
     console.warn(`Spotify rate limit — pausing all requests for ${waitS}s`);
   }
 
@@ -161,16 +86,20 @@ export async function getPlaybackState() {
  * app can't fetch). It stays false/undefined when the lookup simply didn't
  * complete (transient error, on cooldown), so the caller can tell "there
  * will never be a cover, fall back for good" from "try again later".
+ *
+ * `force` (used by the manual "refresh info" action) bypasses the session
+ * cache and the failure cooldown — but not a confirmed 404, and not the
+ * global rate-limit gate.
  */
-export async function getContextMeta(type, id) {
+export async function getContextMeta(type, id, { force = false } = {}) {
   const cacheKey = `${type}:${id}`;
-  if (contextMetaCache.has(cacheKey)) {
+  if (!force && contextMetaCache.has(cacheKey)) {
     return contextMetaCache.get(cacheKey);
   }
   if (unreadableContexts.has(cacheKey)) {
     return { name: null, imageUrl: null, noCover: true };
   }
-  if ((contextMetaCooldown.get(cacheKey) ?? 0) > Date.now()) {
+  if (!force && (contextMetaCooldown.get(cacheKey) ?? 0) > Date.now()) {
     return { name: null, imageUrl: null }; // failed recently — status unknown
   }
   const path =
@@ -199,6 +128,19 @@ export async function getContextMeta(type, id) {
   const meta = { name: data.name || null, imageUrl, noCover: !imageUrl };
   if (meta.name || meta.imageUrl) contextMetaCache.set(cacheKey, meta);
   return meta;
+}
+
+/**
+ * The album art (smallest) for a single track, or null. Only used by the
+ * manual "refresh info" action to backfill `trackImageUrl` on a bookmark
+ * saved before that field existed.
+ */
+export async function getTrackImage(trackId) {
+  if (!trackId) return null;
+  const res = await apiFetch(`/tracks/${encodeURIComponent(trackId)}`);
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return smallestImageUrl(data?.album?.images);
 }
 
 /**

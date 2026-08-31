@@ -137,8 +137,15 @@ async function performRefresh() {
   });
 
   if (!res.ok) {
-    // Refresh token is likely invalid/expired — force a fresh login.
+    // Refresh token is invalid/expired/revoked — nothing to do but log in
+    // again. Clear the tokens and let the app switch to the login view
+    // (main.js listens); a reload wouldn't help.
     logout();
+    try {
+      window.dispatchEvent(new CustomEvent("myspot:sessionexpired"));
+    } catch {
+      /* not in a browser (tests) */
+    }
     throw new Error("Session expired — please log in again.");
   }
 

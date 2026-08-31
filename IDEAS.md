@@ -137,6 +137,30 @@ Original backlog #1–#12, plus everything added along the way:
   "Song art" tile style. New whitelisted field in `firestore.rules`
   (**re-paste + Publish**) and in `EXPORT_FIELDS`; old bookmarks lack it
   until re-saved (Song art then falls back to blank for them).
+- **Rate-limit state machine extracted** — the 429 back-off (persisted
+  deadline, escalation, cross-tab read, 1h cap) moved from module-level
+  state in `spotifyApi.js` to `createRateLimiter({ now, storage })` in
+  `js/rateLimit.js`, so it's testable with an injected clock and fake
+  storage. `test/rateLimit.test.js` covers the gate, persistence,
+  escalation, the "don't clear a backoff we just set" race, the streak
+  calm-down, and cross-tab. Behaviour unchanged.
+- **`test/rules.test.js`** — parses `firestore.rules` and asserts every
+  `EXPORT_FIELDS` entry and every key `buildImportBookmark` emits is in the
+  rules' `hasOnly([...])` whitelist, and that every whitelisted field is
+  actually validated. Catches the "client added a field, forgot to publish
+  the rules → every save 403s" class of bug (which happened once).
+- **Dead-refresh-token → login view** — when `performRefresh` gets a
+  non-OK (refresh token revoked/expired), `auth.js` now also fires a
+  `myspot:sessionexpired` window event; `main.js` drops to the login view
+  with "Your Spotify session expired — log in again" instead of leaving the
+  app stuck behind a misleading "reload to try again".
+- **Per-bookmark ↻ refresh** — an icon next to ✎ re-asks Spotify for the
+  playlist's real name + cover (`getContextMeta(..., { force: true })`
+  bypasses the session cache + cooldown, not a confirmed 404 or the rate
+  gate) and backfills `trackImageUrl` for an old bookmark via
+  `GET /tracks/{id}`. Merges the changed fields with
+  `updateBookmarkFields()` — no timestamp touch. Fixes a stuck "Unknown
+  playlist" or a blank Song-art tile without replaying the playlist.
 
 ## Left
 

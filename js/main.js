@@ -13,8 +13,8 @@ import {
   spotifyWebUrl,
 } from "./format.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
-import { getCurrentUser, getPlaybackState, getContextMeta, getContextTracks, getDevices, resumePlayback, playbackControl, seek, searchContexts, rateLimitedForMs } from "./spotifyApi.js";
-import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, contextKey } from "./firebaseBookmarks.js";
+import { getCurrentUser, getPlaybackState, getContextMeta, getContextTracks, getTrackImage, getDevices, resumePlayback, playbackControl, seek, searchContexts, rateLimitedForMs } from "./spotifyApi.js";
+import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, updateBookmarkFields, contextKey } from "./firebaseBookmarks.js";
 import { tileDataUrl, TILE_STYLES, DEFAULT_TILE_STYLE } from "./tiles.js";
 
 const el = {
@@ -465,6 +465,7 @@ function renderBookmarks() {
           <div class="context-name">
             <span class="context-name-text">${escapeHtml(bookmarkName(bm))}</span>
             <span class="context-type">${escapeHtml(bm.contextType)}</span>
+            <button class="refresh-btn" title="Refresh name & artwork from Spotify" aria-label="Refresh name and artwork">↻</button>
             <button class="rename-btn" title="Rename" aria-label="Rename">✎</button>
           </div>
           <div class="track-line">${escapeHtml(bm.trackName)} — ${escapeHtml(bm.artists)}</div>
@@ -483,6 +484,7 @@ function renderBookmarks() {
     li.querySelector(".resume-btn").addEventListener("click", () => onResume(bm));
     li.querySelector(".remove-btn").addEventListener("click", () => onRemove(bm, li));
     li.querySelector(".rename-btn").addEventListener("click", () => startRename(bm, li));
+    li.querySelector(".refresh-btn").addEventListener("click", () => refreshBookmarkInfo(bm));
     li.querySelector(".tracks-btn")?.addEventListener("click", () => toggleTracks(bm));
     if (expanded) renderTracksInto(li.querySelector(".tracklist"), bm);
     el.bookmarkList.appendChild(li);
@@ -570,6 +572,46 @@ async function onPlayTrack(bm, track) {
         ? "No active device — open Spotify somewhere first."
         : "Couldn't play that track.",
     );
+  }
+}
+
+// Manual "refresh info" — re-ask Spotify for a playlist's real name and
+// cover (forcing past the session cache and cooldown), and backfill the
+// saved track's art for a bookmark that predates the trackImageUrl field.
+// Fixes a stuck "Unknown playlist" or a blank Song-art tile without having
+// to play the playlist and switch away.
+let refreshingBookmarkId = null;
+async function refreshBookmarkInfo(bm) {
+  if (refreshingBookmarkId) return;
+  refreshingBookmarkId = bm.id;
+  try {
+    const patch = {};
+    if (bm.contextType === "playlist") {
+      const meta = await getContextMeta(bm.contextType, bm.contextId, { force: true });
+      if (meta.name && meta.name !== bm.contextName) patch.contextName = meta.name;
+      if (meta.imageUrl && meta.imageUrl !== bm.imageUrl) patch.imageUrl = meta.imageUrl;
+    }
+    if (bm.trackId && !bm.trackImageUrl) {
+      const art = await getTrackImage(bm.trackId);
+      if (art) patch.trackImageUrl = art;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      showToast(
+        rateLimitedForMs() > 0
+          ? "Spotify is rate-limiting the app — try again in a minute."
+          : "Nothing new from Spotify for that one.",
+      );
+      return;
+    }
+    await updateBookmarkFields(spotifyUserId, bm.id, patch);
+    await refreshBookmarkList();
+    showToast("Updated from Spotify.");
+  } catch (err) {
+    console.error("Refresh info failed:", err);
+    showToast("Couldn't refresh that bookmark.");
+  } finally {
+    refreshingBookmarkId = null;
   }
 }
 
@@ -1123,6 +1165,18 @@ function enterLoggedOut() {
   el.appView.hidden = true;
 }
 
+// auth.js fires this once when a token refresh is rejected (refresh token
+// revoked or expired) — it has already cleared the stored tokens. Drop to
+// the login view and say why; a reload would just fail the same way.
+let sessionExpiryHandled = false;
+function handleSessionExpired() {
+  if (sessionExpiryHandled) return;
+  sessionExpiryHandled = true;
+  spotifyUserId = null;
+  enterLoggedOut();
+  showToast("Your Spotify session expired — log in again.", { ms: 8000 });
+}
+
 const COPYRIGHT = "© 2026 Juan D. Martin";
 
 async function init() {
@@ -1180,6 +1234,7 @@ async function init() {
     setTimeout(pollOnce, 800);
   });
   document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("myspot:sessionexpired", handleSessionExpired);
 
   // Strip one-shot query params so a manual reload doesn't re-fire them
   // (the shortcut action, and the ?listtools flag once it's been persisted).
@@ -1262,7 +1317,11 @@ async function init() {
       await enterApp();
     } catch (err) {
       console.error("Failed to start the app:", err);
-      setBookmarkStatus("Couldn't reach Spotify — reload to try again.", "error");
+      // If the session expired mid-startup, handleSessionExpired already
+      // switched to the login view — don't tell the user to reload.
+      if (isLoggedIn()) {
+        setBookmarkStatus("Couldn't reach Spotify — reload to try again.", "error");
+      }
     }
   } else {
     enterLoggedOut();
