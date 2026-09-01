@@ -2,7 +2,8 @@
 
 Bookmark exactly where you are in a Spotify playlist or album — track +
 position — and jump back in later with the queue continuing normally.
-Installable on Android as a home-screen PWA (repo name: `spotify-bookmarks`).
+Installable as a home-screen PWA on Android or iPhone (repo name:
+`spotify-bookmarks`).
 
 Static site (plain ES modules, no build step), hosted on GitHub Pages, with
 Firestore for bookmark storage and Spotify's Web API + PKCE OAuth for
@@ -170,8 +171,17 @@ Redirect URI matches the real deployed URL).
    `PLAYLIST` or `ALBUM` tag.
 5. Tap **Resume** on a bookmark — playback should jump to that exact track,
    inside that playlist or album, and a confirmation toast should appear.
-6. On Android Chrome, open the site, tap the **⋮** menu → **Add to Home
-   screen** to install it as a standalone app.
+6. Install it as a standalone app:
+   - **Android**: Chrome → open the site → **⋮** menu → **Add to Home
+     screen**.
+   - **iPhone**: **Safari only** — iOS requires every browser to use
+     Apple's WebKit engine, so Chrome/Firefox/etc. on iOS can't produce a
+     real standalone install (their own "Add to Home Screen", if offered,
+     just makes a bookmark that reopens inside that browser). In Safari:
+     open the site → tap the **Share** icon (square with an arrow) → **Add
+     to Home Screen** → confirm the name → **Add**. Log in for the first
+     time from the installed home-screen icon itself, not from a Safari
+     tab — that's the path that exercises the OAuth redirect round trip.
 
 ## Notes / known constraints
 
@@ -360,7 +370,18 @@ Redirect URI matches the real deployed URL).
 - The PWA exposes a **"Resume last played"** shortcut (long-press the
   home-screen icon on Android, right-click the taskbar icon on desktop) that
   opens the app and immediately resumes your most-recently-used bookmark —
-  it just loads `./?action=resume-last`.
+  it just loads `./?action=resume-last`. **Not available on iPhone** — iOS
+  Safari doesn't support the manifest `shortcuts` member at all, so there's
+  no long-press menu on the home-screen icon there. The app itself is
+  unaffected; just open it normally and tap Resume.
+- The OAuth login redirect (`js/auth.js`) stashes the PKCE `code_verifier`
+  and `state` in `localStorage`, not `sessionStorage`, specifically for
+  installed iOS home-screen PWAs: a cross-origin round trip to
+  `accounts.spotify.com` and back can there land in plain Safari instead of
+  the standalone app's own container, and `sessionStorage` is scoped to
+  that specific browsing context so it wouldn't survive the swap.
+  `localStorage` is origin-scoped regardless of which container reopens it.
+  Both values are single-use and deleted right after the token exchange.
 - The running version shows in the footer (`v21`, …) and is logged to the
   console on load. On every load and every time the app returns to the
   foreground it fetches `js/version.js` from the network; if that's newer
@@ -421,7 +442,7 @@ Redirect URI matches the real deployed URL).
 ```
 index.html              Single-page UI
 style.css                Styling
-manifest.json            PWA manifest (Android "Add to Home Screen")
+manifest.json            PWA manifest ("Add to Home Screen" on Android/iPhone)
 sw.js                     Service worker — network-first shell cache (offline fallback only)
 firestore.rules           Firestore security rules to paste into the Firebase console
 config.json               YOUR Spotify Client ID + Firebase web config (fill in per steps above)

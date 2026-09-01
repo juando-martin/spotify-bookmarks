@@ -148,26 +148,30 @@ const settings = loadSettings();
 const KEEP_POLLING_WHEN_HIDDEN = new URLSearchParams(location.search).has("background");
 // PWA shortcut intent — read before anything rewrites the URL. If we're not
 // logged in yet, the login redirect to Spotify and back loses any query
-// param (the fixed redirectUri carries none), so stash it in sessionStorage
-// the same way auth.js stashes the PKCE verifier/state across that same
-// round trip, and read it back in enterApp() via consumePendingShortcutAction().
+// param (the fixed redirectUri carries none), so stash it the same way
+// auth.js stashes the PKCE verifier/state across that same round trip —
+// localStorage, not sessionStorage, since a cross-origin redirect like this
+// can come back into a different browsing context (e.g. plain Safari
+// instead of an iOS home-screen PWA's own container), and sessionStorage
+// wouldn't survive that but localStorage (origin-scoped) does. Read back in
+// enterApp() via consumePendingShortcutAction().
 const SHORTCUT_ACTION_KEY = "sb_pending_shortcut";
 const shortcutAction = new URLSearchParams(location.search).get("action");
 if (shortcutAction) {
   try {
-    sessionStorage.setItem(SHORTCUT_ACTION_KEY, shortcutAction);
+    localStorage.setItem(SHORTCUT_ACTION_KEY, shortcutAction);
   } catch {
     /* private mode / storage disabled — shortcut just won't survive a login redirect */
   }
 }
 
 /** The pending shortcut action, if any — from the URL, else a login redirect
- *  earlier stashed in sessionStorage. One-shot: always clears the stash. */
+ *  earlier stashed in localStorage. One-shot: always clears the stash. */
 function consumePendingShortcutAction() {
   let action = shortcutAction;
   try {
-    if (!action) action = sessionStorage.getItem(SHORTCUT_ACTION_KEY);
-    sessionStorage.removeItem(SHORTCUT_ACTION_KEY);
+    if (!action) action = localStorage.getItem(SHORTCUT_ACTION_KEY);
+    localStorage.removeItem(SHORTCUT_ACTION_KEY);
   } catch {
     /* private mode / storage disabled */
   }

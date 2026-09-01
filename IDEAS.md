@@ -255,6 +255,24 @@ Original backlog #1–#12, plus everything added along the way:
   other string in this app is hardcoded English, so the fallback should be
   too. `now`/`fmt` stay injectable for tests, which already always passed
   an explicit `"en"` formatter and so didn't need any change.
+- **iPhone home-screen install hardening (v61)** — the OAuth login round
+  trip stashed the PKCE `code_verifier`/`state` in `sessionStorage`, which
+  is scoped to a specific browsing context; on an installed iOS PWA, the
+  cross-origin trip to `accounts.spotify.com` and back can land in plain
+  Safari instead of the standalone app's own container, losing that stash
+  and breaking login. Switched both that stash and the same-pattern
+  `sb_pending_shortcut` stash in `main.js` to `localStorage` (origin-scoped,
+  survives regardless of which container reopens it) — both values are
+  still single-use and deleted right after consumption. Also added the
+  `apple-mobile-web-app-capable` meta tag (`index.html`) as cheap insurance
+  for standalone rendering, and documented Safari-only install steps + the
+  "Resume last played" shortcut's non-support on iOS (Apple doesn't
+  implement the manifest `shortcuts` member) in `README.md`. Confirmed
+  already-fine and left untouched: `viewport-fit=cover` +
+  `env(safe-area-inset-*)` (notch/home-indicator padding, `style.css`) and
+  the update-banner-that-nukes-caches pattern (the standard workaround for
+  iOS's slow/inconsistent service-worker update propagation) were already
+  in place before this pass.
 
 ## Left
 

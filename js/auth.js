@@ -30,8 +30,17 @@ export async function loginWithSpotify() {
   const challenge = await generateCodeChallenge(verifier);
   const state = generateState();
 
-  sessionStorage.setItem(STORAGE_KEYS.verifier, verifier);
-  sessionStorage.setItem(STORAGE_KEYS.state, state);
+  // localStorage, not sessionStorage — on an iOS home-screen PWA, a
+  // cross-origin round trip like this one can come back into plain Safari
+  // instead of the standalone app container, and sessionStorage is scoped
+  // to that specific browsing context (so it wouldn't survive the swap).
+  // localStorage is scoped to the origin regardless of which container
+  // reopens it. Both values are single-use and deleted immediately after
+  // the exchange below, so the only cost of the longer-lived storage is an
+  // abandoned login leaving an unused, harmless verifier/state behind
+  // until the next login attempt overwrites them.
+  localStorage.setItem(STORAGE_KEYS.verifier, verifier);
+  localStorage.setItem(STORAGE_KEYS.state, state);
 
   const params = new URLSearchParams({
     client_id: SPOTIFY_CONFIG.clientId,
@@ -64,8 +73,8 @@ export async function handleRedirectIfPresent() {
 
   if (!code) return false;
 
-  const expectedState = sessionStorage.getItem(STORAGE_KEYS.state);
-  const verifier = sessionStorage.getItem(STORAGE_KEYS.verifier);
+  const expectedState = localStorage.getItem(STORAGE_KEYS.state);
+  const verifier = localStorage.getItem(STORAGE_KEYS.verifier);
 
   // Clean the code/state out of the URL immediately so a page refresh
   // doesn't try to reuse a spent authorization code.
@@ -95,8 +104,8 @@ export async function handleRedirectIfPresent() {
 
   const data = await res.json();
   storeTokens(data);
-  sessionStorage.removeItem(STORAGE_KEYS.verifier);
-  sessionStorage.removeItem(STORAGE_KEYS.state);
+  localStorage.removeItem(STORAGE_KEYS.verifier);
+  localStorage.removeItem(STORAGE_KEYS.state);
   return true;
 }
 
