@@ -23,7 +23,8 @@ service cloud.firestore {
         return d.keys().hasOnly([
                  'contextType', 'contextId', 'contextUri', 'contextName',
                  'customName', 'imageUrl', 'trackImageUrl', 'trackId', 'trackUri',
-                 'trackName', 'artists', 'positionMs', 'updatedAt', 'lastUsedAt'
+                 'trackName', 'artists', 'positionMs', 'updatedAt', 'lastUsedAt',
+                 'tileMode', 'tileStyleId', 'tileImageUrl'
                ])
           && (!('contextType' in d) || d.contextType in ['playlist', 'album'])
           && (!('contextId'   in d) || (d.contextId   is string && d.contextId.size()   <= 100))
@@ -38,7 +39,15 @@ service cloud.firestore {
           && (!('trackImageUrl' in d) || d.trackImageUrl == null || (d.trackImageUrl is string && d.trackImageUrl.size() <= 500))
           && (!('positionMs'  in d) || (d.positionMs is number && d.positionMs >= 0 && d.positionMs <= 86400000))
           && (!('updatedAt'   in d) || d.updatedAt  is timestamp)
-          && (!('lastUsedAt'  in d) || d.lastUsedAt is timestamp);
+          && (!('lastUsedAt'  in d) || d.lastUsedAt is timestamp)
+          // Per-bookmark tile override (IDEAS.md #12). tileMode absent/null
+          // means "spotify" (real art, falling back to the global Settings
+          // style). tileStyleId/tileImageUrl are only *used* in their
+          // matching mode, but stay writable regardless so switching modes
+          // and back doesn't need to re-pick/re-upload.
+          && (!('tileMode'    in d) || d.tileMode == null || d.tileMode in ['spotify', 'settings', 'style', 'custom'])
+          && (!('tileStyleId' in d) || d.tileStyleId == null || d.tileStyleId in ['flat', 'gradient', 'aurora', 'equalizer', 'riso', 'hairline', 'song', 'blank'])
+          && (!('tileImageUrl' in d) || d.tileImageUrl == null || (d.tileImageUrl is string && d.tileImageUrl.size() <= 300000));
       }
     }
   }

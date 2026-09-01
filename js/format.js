@@ -199,6 +199,68 @@ export function bookmarkableContext(snapshot) {
   return null;
 }
 
+// Per-bookmark tile override (IDEAS.md #12). "spotify" is the implicit
+// default (bm.tileMode absent/null reads as this). tileStyleId must mirror
+// TILE_STYLES' ids (js/tiles.js) plus the two pseudo-styles "song"/"blank" —
+// test/format.test.js checks the two stay in sync. Kept here rather than
+// imported from tiles.js so format.js stays free of any DOM-touching
+// dependency (see the file header).
+export const TILE_OVERRIDE_MODES = ["spotify", "settings", "style", "custom"];
+export const TILE_STYLE_IDS = [
+  "flat", "gradient", "aurora", "equalizer", "riso", "hairline", "song", "blank",
+];
+
+/**
+ * Which image a bookmark's tile should show: a direct URL (real Spotify
+ * art, live/saved track art, or an uploaded custom image), a
+ * generated-tile descriptor for tiles.js's tileDataUrl(), or nothing.
+ *
+ *   bm.tileMode       — "spotify" (default/absent), "settings", "style", or
+ *                        "custom".
+ *   bm.tileStyleId    — one of TILE_STYLE_IDS, used only in "style" mode
+ *                        but always saved so switching modes and back
+ *                        doesn't lose the pick.
+ *   bm.tileImageUrl   — the uploaded data: URL, used only in "custom"
+ *                        mode, same "always saved" rule.
+ *   globalStyle       — the current Settings -> Playlist tile style (one of
+ *                        TILE_STYLE_IDS). Used directly by "settings" mode,
+ *                        and as the fallback for "spotify"/"custom" when
+ *                        they have nothing else to show.
+ *   liveTrackImageUrl — the currently playing track's own art, preferred
+ *                        over bm.trackImageUrl when this bookmark's context
+ *                        is the one actually playing right now, so a
+ *                        Song-art tile tracks the song instead of lagging
+ *                        until the next save.
+ *   defaultStyle      — DEFAULT_TILE_STYLE (js/tiles.js), used only if
+ *                        bm.tileStyleId itself is unset in "style" mode.
+ */
+export function bookmarkTileSource(
+  bm,
+  { globalStyle, liveTrackImageUrl, defaultStyle = "flat" } = {},
+) {
+  const settingsFallback = () => {
+    if (globalStyle === "blank") return { kind: "none" };
+    if (globalStyle === "song")
+      return { kind: "image", url: liveTrackImageUrl ?? bm.trackImageUrl ?? null };
+    return { kind: "generated", style: globalStyle };
+  };
+
+  const mode = bm.tileMode || "spotify";
+  if (mode === "custom") {
+    return bm.tileImageUrl ? { kind: "image", url: bm.tileImageUrl } : settingsFallback();
+  }
+  if (mode === "style") {
+    const style = bm.tileStyleId || defaultStyle;
+    if (style === "blank") return { kind: "none" };
+    if (style === "song")
+      return { kind: "image", url: liveTrackImageUrl ?? bm.trackImageUrl ?? null };
+    return { kind: "generated", style };
+  }
+  if (mode === "settings") return settingsFallback();
+  // mode === "spotify" (the default): real art, else behave like "settings".
+  return bm.imageUrl ? { kind: "image", url: bm.imageUrl } : settingsFallback();
+}
+
 /**
  * How long (in seconds) to stop hitting the Spotify API after a 429.
  *
@@ -231,7 +293,7 @@ export function bookmarkUsedMs(bm) {
 export const EXPORT_FIELDS = [
   "contextType", "contextId", "contextUri", "contextName", "customName",
   "imageUrl", "trackImageUrl", "trackId", "trackUri", "trackName", "artists",
-  "positionMs",
+  "positionMs", "tileMode", "tileStyleId", "tileImageUrl",
 ];
 
 /**
@@ -265,5 +327,8 @@ export function buildImportBookmark(raw) {
     trackName: str(raw.trackName, 500) || "",
     artists: str(raw.artists, 1000) || "",
     positionMs: Number.isFinite(pos) && pos >= 0 ? Math.min(pos, 86400000) : 0,
+    tileMode: TILE_OVERRIDE_MODES.includes(raw.tileMode) ? raw.tileMode : null,
+    tileStyleId: TILE_STYLE_IDS.includes(raw.tileStyleId) ? raw.tileStyleId : null,
+    tileImageUrl: str(raw.tileImageUrl, 300000) || null,
   };
 }

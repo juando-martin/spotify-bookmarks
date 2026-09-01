@@ -210,6 +210,36 @@ Original backlog #1–#12, plus everything added along the way:
   `GET /tracks/{id}`. Merges the changed fields with
   `updateBookmarkFields()` — no timestamp touch. Fixes a stuck "Unknown
   playlist" or a blank Song-art tile without replaying the playlist.
+- **Per-bookmark tile override + custom upload (v56)** — the global
+  Settings → Playlist tile style is now a per-bookmark choice too, via a new
+  🖼 icon on each bookmark that opens an inline panel (`.tracklist`'s
+  convention, no modal): `tileMode` is `spotify` (**default** — real Spotify
+  art, falling back to the Settings style if there is none), `settings`
+  (force the *current* Settings style, ignoring real art, tracking future
+  Settings changes), `style` (pin one specific style, frozen), or `custom`
+  (an uploaded image). Applies to albums too, not just playlists — an
+  untouched album keeps showing real art since its `imageUrl` is always
+  populated. Resolution is a pure `bookmarkTileSource()` in `js/format.js`
+  (unit-tested); `tileStyleId` / `tileImageUrl` are always saved regardless
+  of which mode is active, so switching modes and back doesn't lose a style
+  pick or a re-upload. A 📌 badge marks a bookmark pinned away from the
+  live Settings style (`style`/`custom`). Uploads are downscaled/cropped to
+  a 200px square WebP (JPEG fallback) client-side before writing — three
+  new whitelisted `firestore.rules` fields (`tileMode`, `tileStyleId`,
+  `tileImageUrl`, the last capped at 300 KB), and additions to
+  `EXPORT_FIELDS` / `buildImportBookmark`. A Song-art tile (via `style` or
+  the pre-existing global Settings style) now also tracks the currently
+  playing track live — a single targeted `<img>` swap each poll tick, no
+  Firestore write, not a full re-render (so it can't clobber an open rename
+  or tile panel) — fixing a staleness gap that existed before this feature
+  too. The old `tileApply` Settings radio ("only when there's no cover" /
+  "always") no longer gates rendering; it now only sets which `tileMode` a
+  *brand-new* bookmark starts in. Disclosed, accepted regression: an
+  existing bookmark saved under `tileApply: "always"` has no `tileMode`, so
+  it reads as `spotify` after the upgrade and silently switches from
+  always-generated to real-art-first — re-flipping the toggle only affects
+  new bookmarks; an old one needs a per-bookmark edit to get `settings`
+  back. Full design discussion in the session that shipped this.
 
 ## Left
 

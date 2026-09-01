@@ -6,6 +6,7 @@ import {
   bookmarkableContext,
   bookmarkMatches,
   bookmarkName,
+  bookmarkTileSource,
   bookmarkUsedMs,
   buildImportBookmark,
   escapeHtml,
@@ -13,6 +14,7 @@ import {
   formatDuration,
   formatRelative,
   spotifyWebUrl,
+  TILE_STYLE_IDS,
 } from "./format.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
 import { getCurrentUser, getPlaybackState, getContextMeta, getContextTracks, getTrackImage, getDevices, resumePlayback, playbackControl, seek, searchContexts, rateLimitedForMs } from "./spotifyApi.js";
@@ -73,12 +75,19 @@ const el = {
 // apply when nothing is stored yet (auto-bookmark on, config's poll interval).
 const SETTINGS_KEY = "playlist-resume-settings";
 
-// Playlist tile: which image to draw, and when to use it. tileStyle is one
-// of the six generated styles, or the two pseudo-styles "song" (the saved
-// track's album art) and "blank" (nothing). tileApply is "always" (use it
-// even when the playlist has a real cover) or "nocover" (fallback only).
-const TILE_MODES = [...TILE_STYLES.map((s) => s.id), "song", "blank"];
+// Playlist tile: which image to draw by default. tileStyle is one of the
+// six generated styles, or the two pseudo-styles "song" (the saved track's
+// album art) and "blank" (nothing). tileApply no longer gates rendering
+// directly (see bookmarkTileSource in format.js / IDEAS.md #12) — it now
+// only picks which tileMode a *newly created* bookmark starts in: "always"
+// -> "settings" (force this style even when Spotify has a cover), "nocover"
+// -> "spotify" (real art first, falling back to this style).
 const TILE_APPLY = ["always", "nocover"];
+
+// The same 8 choices as the Settings style picker, for the per-bookmark
+// tile panel's "Pick a style" list — TILE_STYLES (generated) plus the two
+// pseudo-styles, in the same order as index.html's Settings radios.
+const TILE_PANEL_STYLES = [...TILE_STYLES, { id: "song", label: "Song art" }, { id: "blank", label: "Blank" }];
 
 function loadSettings() {
   const defaults = {
@@ -90,7 +99,7 @@ function loadSettings() {
   };
   try {
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-    let tileStyle = TILE_MODES.includes(stored.tileStyle) ? stored.tileStyle : defaults.tileStyle;
+    let tileStyle = TILE_STYLE_IDS.includes(stored.tileStyle) ? stored.tileStyle : defaults.tileStyle;
     let tileApply = TILE_APPLY.includes(stored.tileApply) ? stored.tileApply : null;
     if (!tileApply) {
       // Migrate the old 3-way tileScope (never | nocover | all).
@@ -209,6 +218,11 @@ const contextNameTried = new Set();
 // fetched tracks ("loading" | Track[] | null). Survives list re-renders.
 let expandedId = null;
 const expandedTracks = new Map();
+
+// The one bookmark whose tile-source panel is open. Survives list
+// re-renders the same way expandedId does (independent of it — a user can
+// have both a tracklist and a tile panel open on different bookmarks).
+let tilePanelId = null;
 
 /**
  * Show a transient toast. Pass { actionLabel, onAction } for an inline
@@ -361,6 +375,11 @@ function storedBookmarkField(key, field) {
 async function buildBookmarkFromSnapshot(snapshot) {
   const { type, id, uri, name } = bookmarkableContext(snapshot);
   const key = contextKey(type, id);
+  // Only a brand-new bookmark gets a tileMode assigned here — every re-save
+  // (auto-bookmark, follow-bookmark, a manual re-save) must never stomp a
+  // choice made later via the per-bookmark tile panel. Omitting the field
+  // from a merge-write leaves whatever's already stored untouched.
+  const isNewBookmark = !allBookmarks.some((b) => b.id === key);
 
   // The bookmark's thumbnail is the playlist/album *cover*. For an album the
   // playing track's art is already that cover. For a playlist we need one
@@ -404,6 +423,10 @@ async function buildBookmarkFromSnapshot(snapshot) {
     trackName: snapshot.track.name,
     artists: snapshot.track.artists,
     positionMs: snapshot.progressMs ?? 0, // Spotify can report null at a track boundary
+    // See isNewBookmark above — this key is only present on first creation.
+    ...(isNewBookmark
+      ? { tileMode: settings.tileApply === "always" ? "settings" : "spotify" }
+      : {}),
   };
 }
 
@@ -429,23 +452,34 @@ async function refreshBookmarkList() {
   renderBookmarks();
 }
 
+/** The currently playing track's art, when `bm`'s context is the one that's
+ *  actually playing right now — undefined otherwise (bookmarkTileSource
+ *  then falls back to the bookmark's saved trackImageUrl). */
+function liveTrackImageUrlFor(bm) {
+  const ctx = currentSnapshot?.context;
+  if (!ctx || contextKey(ctx.type, ctx.id) !== bm.id) return undefined;
+  return currentSnapshot.track.imageUrl;
+}
+
 /**
- * The image for a bookmark's tile. Albums always show their real art. For a
- * playlist, the tile setting (`tileStyle` / `tileApply`) decides: a real
- * Spotify cover, the saved track's art, a generated tile keyed on the stable
- * context id (see js/tiles.js), or nothing.
+ * The image for a bookmark's tile — resolved via bookmarkTileSource()
+ * (js/format.js) from its per-bookmark tileMode/tileStyleId/tileImageUrl
+ * override, the global Settings style, and (when this bookmark's context is
+ * the one currently playing) the live track's art. Applies to playlists and
+ * albums alike (an untouched album bookmark's tileMode reads as "spotify",
+ * and its imageUrl is always populated, so it keeps showing real art).
  */
 function bookmarkArtUrl(bm) {
-  if (bm.contextType !== "playlist") return bm.imageUrl || null;
-
-  const chosen = () => {
-    if (settings.tileStyle === "blank") return null;
-    if (settings.tileStyle === "song") return bm.trackImageUrl || bm.imageUrl || null;
-    return tileDataUrl(settings.tileStyle, bm.contextId || bm.id, bookmarkName(bm));
-  };
-
-  if (settings.tileApply === "always") return chosen();
-  return bm.imageUrl || chosen();
+  const source = bookmarkTileSource(bm, {
+    globalStyle: settings.tileStyle,
+    liveTrackImageUrl: liveTrackImageUrlFor(bm),
+    defaultStyle: DEFAULT_TILE_STYLE,
+  });
+  if (source.kind === "image") return source.url;
+  if (source.kind === "generated") {
+    return tileDataUrl(source.style, bm.contextId || bm.id, bookmarkName(bm));
+  }
+  return null;
 }
 
 const TILE_PREVIEW_NAMES = ["Discover Weekly", "Deep Focus", "Rainy Day"];
@@ -486,6 +520,7 @@ function renderBookmarks() {
   for (const bm of bookmarks) {
     const li = document.createElement("li");
     li.className = "bookmark-item";
+    li.dataset.contextKey = bm.id; // used by updateLiveTileArt() to target this row without a full re-render
 
     const usedMs = usedAtMs(bm);
     const usedDate = usedMs ? new Date(usedMs) : null;
@@ -502,6 +537,8 @@ function renderBookmarks() {
       ` title="Open in Spotify" aria-label="Open ${escapeHtml(bookmarkName(bm))} in Spotify">` +
       `${artInner}<span class="art-badge" aria-hidden="true">↗</span></a>`;
     const expanded = bm.id === expandedId;
+    const tileOpen = bm.id === tilePanelId;
+    const tileFrozen = bm.tileMode === "style" || bm.tileMode === "custom";
     li.innerHTML = `
       <div class="bookmark-main">
         ${art}
@@ -509,8 +546,10 @@ function renderBookmarks() {
           <div class="context-name">
             <span class="context-name-text">${escapeHtml(bookmarkName(bm))}</span>
             <span class="context-type">${escapeHtml(bm.contextType)}</span>
+            ${tileFrozen ? `<span class="tile-frozen-badge" title="Tile pinned — won't change if you edit Settings" aria-label="Tile pinned">📌</span>` : ""}
             <button class="refresh-btn" title="Refresh name & artwork from Spotify" aria-label="Refresh name and artwork">↻</button>
             <button class="rename-btn" title="Rename" aria-label="Rename">✎</button>
+            <button class="tile-btn" title="Choose this bookmark's tile image" aria-label="Choose tile image" aria-expanded="${tileOpen}">🖼</button>
           </div>
           <div class="track-line">${escapeHtml(bm.trackName)} — ${escapeHtml(bm.artists)}</div>
           <div class="updated"${usedDate ? ` title="${escapeHtml(usedDate.toLocaleString())}"` : ""}>${escapeHtml(detail.join(" · "))}</div>
@@ -523,13 +562,16 @@ function renderBookmarks() {
           <button class="remove-btn">Remove</button>
         </div>
       </div>
+      ${tileOpen ? `<div class="tile-panel"></div>` : ""}
       ${expanded ? `<div class="tracklist"></div>` : ""}
     `;
     li.querySelector(".resume-btn").addEventListener("click", () => onResume(bm));
     li.querySelector(".remove-btn").addEventListener("click", () => onRemove(bm, li));
     li.querySelector(".rename-btn").addEventListener("click", () => startRename(bm, li));
     li.querySelector(".refresh-btn").addEventListener("click", () => refreshBookmarkInfo(bm));
+    li.querySelector(".tile-btn").addEventListener("click", () => toggleTilePanel(bm));
     li.querySelector(".tracks-btn")?.addEventListener("click", () => toggleTracks(bm));
+    if (tileOpen) renderTilePanelInto(li.querySelector(".tile-panel"), bm);
     if (expanded) renderTracksInto(li.querySelector(".tracklist"), bm);
     el.bookmarkList.appendChild(li);
   }
@@ -601,6 +643,164 @@ function renderTracksInto(container, bm) {
     note.className = "tracklist-note";
     note.textContent = `Showing the first ${state.length}.`;
     container.appendChild(note);
+  }
+}
+
+function toggleTilePanel(bm) {
+  tilePanelId = tilePanelId === bm.id ? null : bm.id;
+  renderBookmarks();
+}
+
+const TILE_MODE_LABELS = {
+  spotify: "Spotify's image",
+  settings: "Settings style (whatever's picked below in Settings)",
+  style: "Pick a style…",
+  custom: "Upload an image",
+};
+
+/** Render the per-bookmark tile-source panel: 4 mode radios, plus the
+ *  style-grid and upload sub-controls for the two config-bearing modes —
+ *  always shown (so a stored pick survives switching away) but dimmed and
+ *  disabled unless their mode is the active one. */
+function renderTilePanelInto(container, bm) {
+  const mode = bm.tileMode || "spotify";
+  const styleId = bm.tileStyleId || DEFAULT_TILE_STYLE;
+  const styleActive = mode === "style";
+  const customActive = mode === "custom";
+
+  container.innerHTML = `
+    <div class="tile-panel-modes">
+      ${Object.entries(TILE_MODE_LABELS)
+        .map(
+          ([m, label]) => `
+        <label>
+          <input type="radio" name="tile-mode-${escapeHtml(bm.id)}" value="${m}" ${mode === m ? "checked" : ""} />
+          <span>${escapeHtml(label)}</span>
+        </label>`,
+        )
+        .join("")}
+    </div>
+    <div class="tile-style-grid" ${styleActive ? "" : 'aria-disabled="true"'}>
+      ${TILE_PANEL_STYLES.map(
+        ({ id, label }) => `
+        <label class="tile-style-option">
+          <input type="radio" name="tile-style-${escapeHtml(bm.id)}" value="${id}"
+                 ${styleId === id ? "checked" : ""} ${styleActive ? "" : "disabled"} />
+          <span>${escapeHtml(label)}</span>
+        </label>`,
+      ).join("")}
+    </div>
+    <div class="tile-upload" ${customActive ? "" : 'aria-disabled="true"'}>
+      ${
+        bm.tileImageUrl
+          ? `<img class="tile-upload-preview" src="${escapeHtml(bm.tileImageUrl)}" alt="" width="52" height="52" />`
+          : `<div class="tile-upload-preview tile-upload-empty" aria-hidden="true"></div>`
+      }
+      <input type="file" accept="image/*" class="tile-upload-input" ${customActive ? "" : "disabled"} />
+    </div>
+  `;
+
+  for (const input of container.querySelectorAll(`input[name="tile-mode-${CSS.escape(bm.id)}"]`)) {
+    input.addEventListener("change", () => onTileModeChange(bm, input.value));
+  }
+  for (const input of container.querySelectorAll(`input[name="tile-style-${CSS.escape(bm.id)}"]`)) {
+    input.addEventListener("change", () => onTileStyleChange(bm, input.value));
+  }
+  container
+    .querySelector(".tile-upload-input")
+    ?.addEventListener("change", (e) => onTileUpload(bm, e.target.files?.[0]));
+}
+
+async function onTileModeChange(bm, mode) {
+  try {
+    await updateBookmarkFields(spotifyUserId, bm.id, { tileMode: mode });
+  } catch (err) {
+    console.error("Tile mode change failed:", err);
+    showToast("Couldn't save that.");
+  }
+  await refreshBookmarkList();
+}
+
+async function onTileStyleChange(bm, styleId) {
+  try {
+    await updateBookmarkFields(spotifyUserId, bm.id, { tileStyleId: styleId });
+  } catch (err) {
+    console.error("Tile style change failed:", err);
+    showToast("Couldn't save that.");
+  }
+  await refreshBookmarkList();
+}
+
+const TILE_UPLOAD_SIZE = 200; // px, square — plenty for a 52px (up to ~2x dpr) list tile
+const TILE_UPLOAD_MAX_CHARS = 300000; // matches firestore.rules' tileImageUrl cap
+
+/** Read a picked file, center-crop to square, and downscale/compress it into
+ *  a small data: URL — WebP when the browser can encode it, JPEG otherwise. */
+async function downscaleToDataUrl(file) {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const side = Math.min(bitmap.width, bitmap.height);
+    const sx = (bitmap.width - side) / 2;
+    const sy = (bitmap.height - side) / 2;
+    const canvas = document.createElement("canvas");
+    canvas.width = TILE_UPLOAD_SIZE;
+    canvas.height = TILE_UPLOAD_SIZE;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, TILE_UPLOAD_SIZE, TILE_UPLOAD_SIZE);
+    const webp = canvas.toDataURL("image/webp", 0.82);
+    return webp.startsWith("data:image/webp") ? webp : canvas.toDataURL("image/jpeg", 0.82);
+  } finally {
+    bitmap.close?.();
+  }
+}
+
+async function onTileUpload(bm, file) {
+  if (!file) return;
+  let dataUrl;
+  try {
+    dataUrl = await downscaleToDataUrl(file);
+  } catch (err) {
+    console.error("Tile upload read failed:", err);
+    showToast("Couldn't read that image.");
+    return;
+  }
+  if (!dataUrl || dataUrl.length > TILE_UPLOAD_MAX_CHARS) {
+    showToast("That image is too large — try a different one.");
+    return;
+  }
+  try {
+    await updateBookmarkFields(spotifyUserId, bm.id, { tileMode: "custom", tileImageUrl: dataUrl });
+  } catch (err) {
+    console.error("Tile upload save failed:", err);
+    showToast("Couldn't save that image.");
+    return;
+  }
+  await refreshBookmarkList();
+}
+
+/** Keep a Song-art tile in sync with the currently playing track on every
+ *  poll tick — a single targeted <img> swap, not a full renderBookmarks()
+ *  (which would blow away an open rename or tile panel). No Firestore
+ *  write: the saved trackImageUrl still only changes via the usual save
+ *  paths (auto-/follow-/manual bookmark). */
+function updateLiveTileArt() {
+  const ctx = currentSnapshot?.context;
+  if (!ctx) return;
+  const key = contextKey(ctx.type, ctx.id);
+  const bm = allBookmarks.find((b) => b.id === key);
+  if (!bm) return;
+  const source = bookmarkTileSource(bm, {
+    globalStyle: settings.tileStyle,
+    liveTrackImageUrl: liveTrackImageUrlFor(bm),
+    defaultStyle: DEFAULT_TILE_STYLE,
+  });
+  if (source.kind !== "image" || !source.url) return;
+  for (const li of el.bookmarkList.children) {
+    if (li.dataset.contextKey === key) {
+      const img = li.querySelector("img.bookmark-art");
+      if (img) img.src = source.url;
+      break;
+    }
   }
 }
 
@@ -1098,6 +1298,7 @@ async function runPoll() {
   // the app's steady-state API traffic and the call that kept 429-ing.
   // renderNowPlaying() falls back to the bookmarked name (or "In a playlist").
   renderNowPlaying();
+  updateLiveTileArt();
   resolveContextName(snapshot); // one-shot, off the poll critical path
 }
 
@@ -1235,6 +1436,7 @@ function enterLoggedOut() {
   el.bookmarkFilter.value = "";
   expandedId = null;
   expandedTracks.clear();
+  tilePanelId = null;
   contextNameHints.clear();
   contextNameTried.clear();
   el.loginView.hidden = false;

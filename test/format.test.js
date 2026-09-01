@@ -8,6 +8,7 @@ import {
   bookmarkName,
   bookmarkMatches,
   bookmarkableContext,
+  bookmarkTileSource,
   formatDuration,
   formatRelative,
   spotifyWebUrl,
@@ -19,7 +20,10 @@ import {
   rateLimitWaitSeconds,
   hashCode,
   monogram,
+  TILE_OVERRIDE_MODES,
+  TILE_STYLE_IDS,
 } from "../js/format.js";
+import { TILE_STYLES } from "../js/tiles.js";
 
 test("contextKey joins type and id with an underscore", () => {
   assert.equal(contextKey("playlist", "37i9dQ"), "playlist_37i9dQ");
@@ -321,6 +325,114 @@ test("bookmarkableContext returns null for a null snapshot", () => {
   assert.equal(bookmarkableContext(null), null);
 });
 
+// --- bookmarkTileSource ------------------------------------------------------
+
+test("TILE_STYLE_IDS stays in sync with tiles.js's TILE_STYLES + the two pseudo-styles", () => {
+  assert.deepEqual(TILE_STYLE_IDS, [...TILE_STYLES.map((s) => s.id), "song", "blank"]);
+});
+
+test("bookmarkTileSource defaults to spotify mode (real art) when tileMode is absent", () => {
+  assert.deepEqual(
+    bookmarkTileSource({ imageUrl: "cover.png" }, { globalStyle: "flat" }),
+    { kind: "image", url: "cover.png" },
+  );
+});
+
+test("bookmarkTileSource spotify mode falls back to the settings style when there's no real art", () => {
+  assert.deepEqual(
+    bookmarkTileSource({ imageUrl: null }, { globalStyle: "aurora" }),
+    { kind: "generated", style: "aurora" },
+  );
+  assert.deepEqual(
+    bookmarkTileSource({}, { globalStyle: "aurora" }),
+    { kind: "generated", style: "aurora" },
+  );
+});
+
+test("bookmarkTileSource settings mode ignores real art and always uses the global style", () => {
+  assert.deepEqual(
+    bookmarkTileSource({ tileMode: "settings", imageUrl: "cover.png" }, { globalStyle: "riso" }),
+    { kind: "generated", style: "riso" },
+  );
+});
+
+test("bookmarkTileSource settings/spotify-fallback resolve the song/blank pseudo-styles", () => {
+  const bm = { imageUrl: null, trackImageUrl: "track.png" };
+  assert.deepEqual(
+    bookmarkTileSource(bm, { globalStyle: "song" }),
+    { kind: "image", url: "track.png" },
+  );
+  assert.deepEqual(
+    bookmarkTileSource({ ...bm, tileMode: "settings" }, { globalStyle: "blank" }),
+    { kind: "none" },
+  );
+});
+
+test("bookmarkTileSource style mode is frozen — ignores the global style entirely", () => {
+  assert.deepEqual(
+    bookmarkTileSource(
+      { tileMode: "style", tileStyleId: "hairline", imageUrl: "cover.png" },
+      { globalStyle: "flat" },
+    ),
+    { kind: "generated", style: "hairline" },
+  );
+});
+
+test("bookmarkTileSource style mode falls back to defaultStyle when tileStyleId is unset", () => {
+  assert.deepEqual(
+    bookmarkTileSource({ tileMode: "style" }, { globalStyle: "flat", defaultStyle: "equalizer" }),
+    { kind: "generated", style: "equalizer" },
+  );
+});
+
+test("bookmarkTileSource style mode resolves its own song/blank pseudo-styles", () => {
+  assert.deepEqual(
+    bookmarkTileSource(
+      { tileMode: "style", tileStyleId: "blank", imageUrl: "cover.png" },
+      { globalStyle: "flat" },
+    ),
+    { kind: "none" },
+  );
+  assert.deepEqual(
+    bookmarkTileSource(
+      { tileMode: "style", tileStyleId: "song", trackImageUrl: "track.png" },
+      { globalStyle: "flat" },
+    ),
+    { kind: "image", url: "track.png" },
+  );
+});
+
+test("bookmarkTileSource custom mode uses the uploaded image, falling back when unset", () => {
+  assert.deepEqual(
+    bookmarkTileSource({ tileMode: "custom", tileImageUrl: "data:image/webp;base64,x" }, { globalStyle: "flat" }),
+    { kind: "image", url: "data:image/webp;base64,x" },
+  );
+  // Picked "Upload an image" but hasn't uploaded anything yet — same graceful
+  // fallback as settings mode, not a blank tile.
+  assert.deepEqual(
+    bookmarkTileSource({ tileMode: "custom" }, { globalStyle: "gradient" }),
+    { kind: "generated", style: "gradient" },
+  );
+});
+
+test("bookmarkTileSource prefers liveTrackImageUrl over the saved trackImageUrl for song art", () => {
+  const bm = { tileMode: "style", tileStyleId: "song", trackImageUrl: "stale.png" };
+  assert.deepEqual(
+    bookmarkTileSource(bm, { globalStyle: "flat", liveTrackImageUrl: "live.png" }),
+    { kind: "image", url: "live.png" },
+  );
+  // No live art (this bookmark's context isn't the one currently playing) —
+  // falls back to whatever was last saved.
+  assert.deepEqual(
+    bookmarkTileSource(bm, { globalStyle: "flat" }),
+    { kind: "image", url: "stale.png" },
+  );
+});
+
+test("TILE_OVERRIDE_MODES lists exactly the four bookmarkTileSource modes", () => {
+  assert.deepEqual(TILE_OVERRIDE_MODES, ["spotify", "settings", "style", "custom"]);
+});
+
 // --- bookmarkUsedMs ------------------------------------------------------------
 
 const ts = (ms) => ({ toMillis: () => ms });
@@ -357,6 +469,9 @@ const goodEntry = {
   trackName: "Thank You",
   artists: "Dido",
   positionMs: 154000,
+  tileMode: "style",
+  tileStyleId: "aurora",
+  tileImageUrl: "data:image/webp;base64,abc",
 };
 
 test("buildImportBookmark passes a well-formed entry through", () => {
@@ -387,17 +502,26 @@ test("buildImportBookmark fills defaults and clamps oddities", () => {
   assert.equal(b.trackName, "");
   assert.equal(b.artists, "");
   assert.equal(b.positionMs, 0);
+  assert.equal(b.tileMode, null);
+  assert.equal(b.tileStyleId, null);
+  assert.equal(b.tileImageUrl, null);
 
   assert.equal(buildImportBookmark({ ...goodEntry, positionMs: 1e12 }).positionMs, 86400000);
   assert.equal(buildImportBookmark({ ...goodEntry, contextName: "x".repeat(500) }).contextName, "Unknown playlist");
+});
+
+test("buildImportBookmark drops an invalid tileMode/tileStyleId rather than passing it through", () => {
+  const b = buildImportBookmark({ ...goodEntry, tileMode: "bogus", tileStyleId: "nope" });
+  assert.equal(b.tileMode, null);
+  assert.equal(b.tileStyleId, null);
 });
 
 test("buildImportBookmark output has only the whitelisted fields", () => {
   const b = buildImportBookmark({ ...goodEntry, junk: "drop me", updatedAt: 1 });
   assert.deepEqual(Object.keys(b).sort(), [
     "artists", "contextId", "contextName", "contextType", "contextUri",
-    "customName", "imageUrl", "positionMs", "trackId", "trackImageUrl",
-    "trackName", "trackUri",
+    "customName", "imageUrl", "positionMs", "tileImageUrl", "tileMode",
+    "tileStyleId", "trackId", "trackImageUrl", "trackName", "trackUri",
   ]);
 });
 
