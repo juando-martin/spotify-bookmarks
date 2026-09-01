@@ -509,8 +509,8 @@ button.link {
   position: relative;
   flex-shrink: 0;
   display: block;
-  width: 52px;
-  height: 52px;
+  width: 76px;
+  height: 76px;
   border-radius: 6px;
 }
 
@@ -521,8 +521,8 @@ button.link {
 
 .bookmark-art {
   display: block;
-  width: 52px;
-  height: 52px;
+  width: 76px;
+  height: 76px;
   border-radius: 6px;
   object-fit: cover;
   background: #2c2c2c;

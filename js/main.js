@@ -89,6 +89,13 @@ const TILE_APPLY = ["always", "nocover"];
 // pseudo-styles, in the same order as index.html's Settings radios.
 const TILE_PANEL_STYLES = [...TILE_STYLES, { id: "song", label: "Song art" }, { id: "blank", label: "Blank" }];
 
+// The bookmark-list art tile, in CSS px — sized to match the height of the
+// four text lines beside it (name, type+icons, track, resume/used) now that
+// they're their own lines rather than one wrapping row. Passed into
+// tileDataUrl() too so a generated style is drawn crisp at this size rather
+// than upscaled from its old 52px default.
+const BOOKMARK_ART_SIZE = 76;
+
 function loadSettings() {
   const defaults = {
     autoBookmark: true,
@@ -477,7 +484,7 @@ function bookmarkArtUrl(bm) {
   });
   if (source.kind === "image") return source.url;
   if (source.kind === "generated") {
-    return tileDataUrl(source.style, bm.contextId || bm.id, bookmarkName(bm));
+    return tileDataUrl(source.style, bm.contextId || bm.id, bookmarkName(bm), BOOKMARK_ART_SIZE);
   }
   return null;
 }
@@ -530,7 +537,7 @@ function renderBookmarks() {
 
     const artUrl = bookmarkArtUrl(bm);
     const artInner = artUrl
-      ? `<img class="bookmark-art" src="${escapeHtml(artUrl)}" alt="" width="52" height="52" loading="lazy" />`
+      ? `<img class="bookmark-art" src="${escapeHtml(artUrl)}" alt="" width="${BOOKMARK_ART_SIZE}" height="${BOOKMARK_ART_SIZE}" loading="lazy" />`
       : `<div class="bookmark-art bookmark-art-empty" aria-hidden="true"></div>`;
     const art =
       `<a class="art-link" href="${escapeHtml(spotifyWebUrl(bm.contextUri))}" target="_blank" rel="noopener"` +

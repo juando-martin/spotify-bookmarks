@@ -32,13 +32,16 @@ moving Firebase projects later is a one-file edit — no version bump.
 - **Playlist tiles** — a playlist with genuinely no artwork (a private
   personalized mix, a bare playlist) gets a tile drawn from its name. Six
   styles in Settings, plus "Song art" and "Blank"; optionally replace every
-  playlist's cover with it.
+  playlist's cover with it. Any bookmark (playlist or album) can also
+  override this individually — Spotify's own image, the Settings style
+  forced on, one specific style pinned, or an uploaded image — via ✎.
 - **List tools** (off by default — see the `listtools` flag below): a
   **Find a playlist or album** search box, and **Pick a track** on any
   bookmark to play a different song from its playlist/album.
-- **Rename** any bookmark (✎). Needed for Spotify's editorial "Mix"
-  playlists, whose real name the Web API won't hand back; your name then
-  shows on the Now playing card too.
+- **✎ on any bookmark** opens a panel to rename it and to pick its tile
+  image (see *Playlist tiles* above). Renaming is needed for Spotify's
+  editorial "Mix" playlists, whose real name the Web API won't hand back;
+  your name then shows on the Now playing card too.
 - **Resume device handling** — one idle device just plays; several show a
   picker; none shows an "Open in Spotify" deep link.
 - **Undo** on Remove (5-second grace period).
@@ -280,13 +283,14 @@ Redirect URI matches the real deployed URL).
   mix like **Discover Weekly / Daily Mix**. Those still show "Unknown
   playlist" + a generated tile; rename with ✎ to give them a name (it
   sticks — the playlist ID is stable even as the contents rotate).
-- Every bookmark has a **✎ rename** control next to its name. The custom
-  name is stored per bookmark (`customName`), shown instead of Spotify's
-  (clear the field to fall back), and survives re-saves and auto-bookmarks.
-  While that context is playing, the Now playing card shows the custom name
-  too. This is the fix for the editorial-playlist case above: the playlist
-  ID is stable (Discover Weekly keeps the same URI forever, only its
-  contents rotate), so a name you set once sticks.
+- Every bookmark has a **✎** control opening a panel with a name field and
+  the tile picker (see *Playlist tiles* above). The custom name is stored
+  per bookmark (`customName`), shown instead of Spotify's (clear the field
+  to fall back), and survives re-saves and auto-bookmarks. While that
+  context is playing, the Now playing card shows the custom name too. This
+  is the fix for the editorial-playlist case above: the playlist ID is
+  stable (Discover Weekly keeps the same URI forever, only its contents
+  rotate), so a name you set once sticks.
 - Next to ✎ is a **↻ refresh** control — re-asks Spotify for the playlist's
   real name and cover and, for an old bookmark, backfills the saved track's
   art via `GET /tracks/{id}`. It bypasses the session cache, the failure
@@ -330,16 +334,21 @@ Redirect URI matches the real deployed URL).
   - **Check Spotify every** 3–60 s — lower is tighter precision at the cost
     of more API calls. Auto-bookmark-on-switch can be up to one interval
     behind the actual moment.
-  - **Playlist tile** — what to show for a playlist with no cover of its
-    own. A *style*: six generated tiles (**Flat, Gradient, Aurora,
-    Equalizer, Risograph, Hairline** — drawn from the playlist's id for the
-    colour/shape and its name for a 1–2 letter monogram, so the same
-    playlist always looks the same on every device), or **Song art** (the
-    saved track's album art) or **Blank** (an empty tile). And *when*:
-    **only where there's no cover** (default), or **always**, replacing
-    Spotify's cover too. Albums always keep their real art. It's all decided
-    at render time — changing it just repaints the list, nothing is stored
-    per bookmark. (Studied in the "Playlist Tile Studio" design page.)
+  - **Playlist tile** — the account-wide *style*: six generated tiles
+    (**Flat, Gradient, Aurora, Equalizer, Risograph, Hairline** — drawn from
+    the playlist's id for the colour/shape and its name for a 1–2 letter
+    monogram, so the same playlist always looks the same on every device),
+    or **Song art** (the saved track's album art) or **Blank** (an empty
+    tile). The radio below it no longer decides live rendering — it only
+    picks which tile source a **newly-created** bookmark starts with:
+    Spotify's own image, falling back to this style if there is none
+    (default), or this style forced on from the start. Any bookmark, once
+    created (playlist or album), can override its own tile independently via
+    **✎**: Spotify's image, the *current* Settings style forced on (tracks
+    future changes to it), one specific style pinned regardless of Settings,
+    or an uploaded image — see `IDEAS.md` #12 for the full model. (Studied
+    in the "Playlist Tile Studio" design page for the generated styles
+    themselves.)
   All four are stored per-device in `localStorage`; `POLL_INTERVAL_MS` in
   `js/config.js` is only the pre-touch default for the interval.
 - Polling only runs **while the app is the visible tab**. It's paused on
