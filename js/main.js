@@ -219,10 +219,10 @@ const contextNameTried = new Set();
 let expandedId = null;
 const expandedTracks = new Map();
 
-// The one bookmark whose tile-source panel is open. Survives list
-// re-renders the same way expandedId does (independent of it — a user can
-// have both a tracklist and a tile panel open on different bookmarks).
-let tilePanelId = null;
+// The one bookmark whose edit panel (name + tile source) is open. Survives
+// list re-renders the same way expandedId does (independent of it — a user
+// can have both a tracklist and an edit panel open on different bookmarks).
+let editPanelId = null;
 
 /**
  * Show a transient toast. Pass { actionLabel, onAction } for an inline
@@ -537,19 +537,18 @@ function renderBookmarks() {
       ` title="Open in Spotify" aria-label="Open ${escapeHtml(bookmarkName(bm))} in Spotify">` +
       `${artInner}<span class="art-badge" aria-hidden="true">↗</span></a>`;
     const expanded = bm.id === expandedId;
-    const tileOpen = bm.id === tilePanelId;
+    const editOpen = bm.id === editPanelId;
     const tileFrozen = bm.tileMode === "style" || bm.tileMode === "custom";
     li.innerHTML = `
       <div class="bookmark-main">
         ${art}
         <div class="bookmark-text">
-          <div class="context-name">
-            <span class="context-name-text">${escapeHtml(bookmarkName(bm))}</span>
+          <div class="context-name-text">${escapeHtml(bookmarkName(bm))}</div>
+          <div class="context-meta-row">
             <span class="context-type">${escapeHtml(bm.contextType)}</span>
             ${tileFrozen ? `<span class="tile-frozen-badge" title="Tile pinned — won't change if you edit Settings" aria-label="Tile pinned">📌</span>` : ""}
             <button class="refresh-btn" title="Refresh name & artwork from Spotify" aria-label="Refresh name and artwork">↻</button>
-            <button class="rename-btn" title="Rename" aria-label="Rename">✎</button>
-            <button class="tile-btn" title="Choose this bookmark's tile image" aria-label="Choose tile image" aria-expanded="${tileOpen}">🖼</button>
+            <button class="edit-btn" title="Edit name & tile image" aria-label="Edit name and tile image" aria-expanded="${editOpen}">✎</button>
           </div>
           <div class="track-line">${escapeHtml(bm.trackName)} — ${escapeHtml(bm.artists)}</div>
           <div class="updated"${usedDate ? ` title="${escapeHtml(usedDate.toLocaleString())}"` : ""}>${escapeHtml(detail.join(" · "))}</div>
@@ -562,16 +561,15 @@ function renderBookmarks() {
           <button class="remove-btn">Remove</button>
         </div>
       </div>
-      ${tileOpen ? `<div class="tile-panel"></div>` : ""}
+      ${editOpen ? `<div class="edit-panel"></div>` : ""}
       ${expanded ? `<div class="tracklist"></div>` : ""}
     `;
     li.querySelector(".resume-btn").addEventListener("click", () => onResume(bm));
     li.querySelector(".remove-btn").addEventListener("click", () => onRemove(bm, li));
-    li.querySelector(".rename-btn").addEventListener("click", () => startRename(bm, li));
     li.querySelector(".refresh-btn").addEventListener("click", () => refreshBookmarkInfo(bm));
-    li.querySelector(".tile-btn").addEventListener("click", () => toggleTilePanel(bm));
+    li.querySelector(".edit-btn").addEventListener("click", () => toggleEditPanel(bm));
     li.querySelector(".tracks-btn")?.addEventListener("click", () => toggleTracks(bm));
-    if (tileOpen) renderTilePanelInto(li.querySelector(".tile-panel"), bm);
+    if (editOpen) renderEditPanelInto(li.querySelector(".edit-panel"), bm);
     if (expanded) renderTracksInto(li.querySelector(".tracklist"), bm);
     el.bookmarkList.appendChild(li);
   }
@@ -646,8 +644,8 @@ function renderTracksInto(container, bm) {
   }
 }
 
-function toggleTilePanel(bm) {
-  tilePanelId = tilePanelId === bm.id ? null : bm.id;
+function toggleEditPanel(bm) {
+  editPanelId = editPanelId === bm.id ? null : bm.id;
   renderBookmarks();
 }
 
@@ -658,17 +656,22 @@ const TILE_MODE_LABELS = {
   custom: "Upload an image",
 };
 
-/** Render the per-bookmark tile-source panel: 4 mode radios, plus the
- *  style-grid and upload sub-controls for the two config-bearing modes —
- *  always shown (so a stored pick survives switching away) but dimmed and
- *  disabled unless their mode is the active one. */
-function renderTilePanelInto(container, bm) {
+/** Render the per-bookmark edit panel: a name field, then the tile-source
+ *  picker (4 mode radios, plus the style-grid and upload sub-controls for
+ *  the two config-bearing modes — always shown, so a stored pick survives
+ *  switching away, but dimmed and disabled unless their mode is active). */
+function renderEditPanelInto(container, bm) {
   const mode = bm.tileMode || "spotify";
   const styleId = bm.tileStyleId || DEFAULT_TILE_STYLE;
   const styleActive = mode === "style";
   const customActive = mode === "custom";
+  const currentName = bm.customName || bm.contextName || "";
 
   container.innerHTML = `
+    <div class="edit-name-row">
+      <input type="text" class="edit-name-input" maxlength="120" value="${escapeHtml(currentName)}" placeholder="Bookmark name" />
+    </div>
+    <p class="setting-hint">Tap away or press Enter to save the name.</p>
     <div class="tile-panel-modes">
       ${Object.entries(TILE_MODE_LABELS)
         .map(
@@ -700,6 +703,7 @@ function renderTilePanelInto(container, bm) {
     </div>
   `;
 
+  wireEditNameInput(container.querySelector(".edit-name-input"), bm);
   for (const input of container.querySelectorAll(`input[name="tile-mode-${CSS.escape(bm.id)}"]`)) {
     input.addEventListener("change", () => onTileModeChange(bm, input.value));
   }
@@ -709,6 +713,35 @@ function renderTilePanelInto(container, bm) {
   container
     .querySelector(".tile-upload-input")
     ?.addEventListener("change", (e) => onTileUpload(bm, e.target.files?.[0]));
+}
+
+/** Save on blur (Enter blurs too — no separate Save button, this panel isn't
+ *  a modal you commit out of). Escape resets the field first; the reset
+ *  value then computes back to the same customName, so the blur it triggers
+ *  is a no-op save (skipped below) rather than an extra write. */
+function wireEditNameInput(input, bm) {
+  const save = async () => {
+    const value = input.value.trim();
+    const customName = value && value !== bm.contextName ? value : null;
+    if (customName === (bm.customName || null)) return; // unchanged — skip the write and the re-render
+    try {
+      await renameBookmark(spotifyUserId, bm.id, customName);
+    } catch (err) {
+      console.error(err);
+      showToast("Couldn't rename that bookmark.");
+    }
+    await refreshBookmarkList();
+  };
+  input.addEventListener("blur", save);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      input.blur();
+    } else if (e.key === "Escape") {
+      input.value = bm.customName || bm.contextName || "";
+      input.blur();
+    }
+  });
 }
 
 async function onTileModeChange(bm, mode) {
@@ -857,41 +890,6 @@ async function refreshBookmarkInfo(bm) {
   } finally {
     refreshingBookmarkId = null;
   }
-}
-
-/** Swap a bookmark's name line for an inline text editor. */
-function startRename(bm, li) {
-  const row = li.querySelector(".context-name");
-  const currentName = bm.customName || bm.contextName || "";
-  row.innerHTML = `
-    <input class="rename-input" type="text" maxlength="120" value="${escapeHtml(currentName)}" />
-    <button class="rename-save">Save</button>
-    <button class="rename-cancel">Cancel</button>
-  `;
-  const input = row.querySelector(".rename-input");
-  input.focus();
-  input.select();
-
-  const cancel = () => refreshBookmarkList();
-  const save = async () => {
-    const value = input.value.trim();
-    // Store null when it's blank or just matches Spotify's own name.
-    const customName = value && value !== bm.contextName ? value : null;
-    try {
-      await renameBookmark(spotifyUserId, bm.id, customName);
-    } catch (err) {
-      console.error(err);
-      showToast("Couldn't rename that bookmark.");
-    }
-    await refreshBookmarkList();
-  };
-
-  row.querySelector(".rename-cancel").addEventListener("click", cancel);
-  row.querySelector(".rename-save").addEventListener("click", save);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") save();
-    else if (e.key === "Escape") cancel();
-  });
 }
 
 async function onTransport(action) {
@@ -1436,7 +1434,7 @@ function enterLoggedOut() {
   el.bookmarkFilter.value = "";
   expandedId = null;
   expandedTracks.clear();
-  tilePanelId = null;
+  editPanelId = null;
   contextNameHints.clear();
   contextNameTried.clear();
   el.loginView.hidden = false;

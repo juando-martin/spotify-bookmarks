@@ -210,10 +210,17 @@ Original backlog #1–#12, plus everything added along the way:
   `GET /tracks/{id}`. Merges the changed fields with
   `updateBookmarkFields()` — no timestamp touch. Fixes a stuck "Unknown
   playlist" or a blank Song-art tile without replaying the playlist.
-- **Per-bookmark tile override + custom upload (v56)** — the global
-  Settings → Playlist tile style is now a per-bookmark choice too, via a new
-  🖼 icon on each bookmark that opens an inline panel (`.tracklist`'s
-  convention, no modal): `tileMode` is `spotify` (**default** — real Spotify
+- **Per-bookmark tile override + custom upload (v56, refined v57)** — the
+  global Settings → Playlist tile style is now a per-bookmark choice too,
+  via the ✎ icon on each bookmark, which opens an inline panel
+  (`.tracklist`'s convention, no modal) — v57 merged what was originally a
+  separate 🖼 icon *into* ✎ (now "edit name & tile" in one place, dropping
+  the old instant-inline-rename swap for a name field at the top of the
+  same panel — save on blur/Enter, no separate Save/Cancel) after the icon
+  row was sometimes wrapping to a third line with 3 icons live. The
+  bookmark card header is now two lines — name alone, then type badge + 📌 +
+  ↻ + ✎ — instead of one `flex-wrap` row, so an icon can no longer get
+  pushed off onto its own line. `tileMode` is `spotify` (**default** — real Spotify
   art, falling back to the Settings style if there is none), `settings`
   (force the *current* Settings style, ignoring real art, tracking future
   Settings changes), `style` (pin one specific style, frozen), or `custom`
@@ -240,6 +247,14 @@ Original backlog #1–#12, plus everything added along the way:
   always-generated to real-art-first — re-flipping the toggle only affects
   new bookmarks; an old one needs a per-bookmark edit to get `settings`
   back. Full design discussion in the session that shipped this.
+- **Fixed English/Spanish mixing in the "used …" line (v57)** — `formatRelative()`
+  built its default `Intl.RelativeTimeFormat` with `undefined` locale (the
+  browser's own), so on a Spanish-language device the bookmark list showed
+  "resumes at 2:40 · used hace 2 horas" — the app's own hardcoded-English
+  copy next to a Spanish relative time. Fixed the default to `"en"`; every
+  other string in this app is hardcoded English, so the fallback should be
+  too. `now`/`fmt` stay injectable for tests, which already always passed
+  an explicit `"en"` formatter and so didn't need any change.
 
 ## Left
 

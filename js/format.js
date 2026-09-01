@@ -88,11 +88,14 @@ export const RELATIVE_UNITS = [
   ["minute", 60000],
 ];
 
-const defaultRelativeFmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+// Fixed "en" rather than the browser's locale (`undefined`) — every other
+// string in this app is hardcoded English, so a Spanish/etc. system locale
+// would otherwise mix "resumes at 2:40 · used hace 2 horas" into one line.
+const defaultRelativeFmt = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
 /**
  * A Date -> "3 hours ago" / "yesterday" / "just now". `now` and `fmt` are
- * injectable for tests; the app uses the current time and the system locale.
+ * injectable for tests; the app defaults to the current time and English.
  */
 export function formatRelative(date, now = Date.now(), fmt = defaultRelativeFmt) {
   const diff = date.getTime() - now;
