@@ -2,7 +2,7 @@
 // Thin wrapper around the Spotify Web API endpoints this app needs.
 
 import { getAccessToken } from "./auth.js";
-import { normalizePlaybackState, smallestImageUrl } from "./format.js";
+import { normalizePlaybackState, smallestImageUrl, parseOembed } from "./format.js";
 import { createRateLimiter } from "./rateLimit.js";
 
 const API_BASE = "https://api.spotify.com/v1";
@@ -77,22 +77,53 @@ export async function getPlaybackState() {
 }
 
 /**
+ * Fetch `{ name, imageUrl, noCover }` from `open.spotify.com/oembed` — the
+ * public web-player metadata, which still covers the editorial / algorithmic
+ * playlists the Web API locked out for Development-Mode apps. Unauthenticated,
+ * CORS-open, and on a separate rate limit from api.spotify.com, so it's safe
+ * as a fallback. Returns:
+ *   { name, imageUrl, noCover }  on success
+ *   false                        when it's definitively not there (404/400,
+ *                                or a body with nothing usable)
+ *   null                         on a transient failure (offline, 5xx)
+ */
+async function oembedMeta(type, id) {
+  const target = `https://open.spotify.com/${type}/${encodeURIComponent(id)}`;
+  let res;
+  try {
+    res = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(target)}`);
+  } catch {
+    return null; // offline / blocked
+  }
+  if (res.status === 404 || res.status === 400) return false;
+  if (!res.ok) return null;
+  return parseOembed(await res.json().catch(() => null)); // {…} | false
+}
+
+/**
  * Playlist/album metadata — `{ name, imageUrl, noCover }` — cached in memory
  * for the session. imageUrl is the playlist/album *cover* (not any track's
  * art), null when there isn't one or it can't be read.
  *
- * `noCover` is true only when Spotify *confirmed* there's no usable cover —
- * a 200 with no images, or a 404 (an editorial playlist a Development-Mode
- * app can't fetch). It stays false/undefined when the lookup simply didn't
- * complete (transient error, on cooldown), so the caller can tell "there
- * will never be a cover, fall back for good" from "try again later".
+ * `noCover` is true only when there's *confirmed* to be no usable cover —
+ * a 200 with no images, or a 404 with no oEmbed thumbnail either. It stays
+ * false/undefined when the lookup simply didn't complete (transient error,
+ * on cooldown), so the caller can tell "there will never be a cover, fall
+ * back for good" from "try again later".
  *
- * `force` (used by the manual "refresh info" action) bypasses the session
- * cache and the failure cooldown — but not a confirmed 404, and not the
- * global rate-limit gate.
+ * When the Web API 404s (an editorial playlist), it falls back to
+ * `open.spotify.com/oembed` for the name and cover.
+ *
+ * `force` (the manual "refresh info" action) bypasses the session cache, the
+ * failure cooldown, *and* a prior "unreadable" mark — a deliberate retry of
+ * everything, including oEmbed. It never bypasses the global rate-limit gate.
  */
 export async function getContextMeta(type, id, { force = false } = {}) {
   const cacheKey = `${type}:${id}`;
+  if (force) {
+    unreadableContexts.delete(cacheKey);
+    contextMetaCooldown.delete(cacheKey);
+  }
   if (!force && contextMetaCache.has(cacheKey)) {
     return contextMetaCache.get(cacheKey);
   }
@@ -106,8 +137,20 @@ export async function getContextMeta(type, id, { force = false } = {}) {
     type === "playlist" ? `/playlists/${id}?fields=name,images` : `/albums/${id}`;
   const res = await apiFetch(path);
   if (res.status === 404) {
-    unreadableContexts.add(cacheKey); // persistent — stop asking this session
-    return { name: null, imageUrl: null, noCover: true };
+    // The Web API won't serve this to a dev-mode app. Its public name +
+    // cover are still on open.spotify.com — try oEmbed before giving up.
+    const meta = await oembedMeta(type, id);
+    if (meta) {
+      contextMetaCache.set(cacheKey, meta);
+      return meta;
+    }
+    if (meta === false) {
+      unreadableContexts.add(cacheKey); // not public there either — stop asking
+      return { name: null, imageUrl: null, noCover: true };
+    }
+    // oEmbed transiently failed — retry the whole lookup in 10 min.
+    contextMetaCooldown.set(cacheKey, Date.now() + 10 * 60_000);
+    return { name: null, imageUrl: null };
   }
   if (!res.ok) {
     // Back this context off so a stuck poll loop doesn't re-request it every

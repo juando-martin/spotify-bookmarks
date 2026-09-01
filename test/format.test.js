@@ -11,6 +11,7 @@ import {
   formatRelative,
   spotifyWebUrl,
   smallestImageUrl,
+  parseOembed,
   normalizePlaybackState,
   bookmarkUsedMs,
   buildImportBookmark,
@@ -107,6 +108,39 @@ test("smallestImageUrl copes with missing data", () => {
   assert.equal(smallestImageUrl(undefined), null);
   assert.equal(smallestImageUrl([{ url: "only" }]), "only"); // no width
   assert.equal(smallestImageUrl([{ width: 64 }]), null); // no url
+});
+
+test("parseOembed pulls the title and thumbnail from an oEmbed body", () => {
+  assert.deepEqual(
+    parseOembed({
+      title: "Today’s Top Hits",
+      thumbnail_url: "https://i.scdn.co/image/ab67",
+      thumbnail_width: 300,
+    }),
+    { name: "Today’s Top Hits", imageUrl: "https://i.scdn.co/image/ab67", noCover: false },
+  );
+});
+
+test("parseOembed keeps the name when there's no usable thumbnail", () => {
+  assert.deepEqual(parseOembed({ title: "  RapCaviar  " }), {
+    name: "RapCaviar",
+    imageUrl: null,
+    noCover: true,
+  });
+  // a non-https thumbnail is dropped, not trusted
+  assert.deepEqual(parseOembed({ title: "X", thumbnail_url: "http://insecure/img" }), {
+    name: "X",
+    imageUrl: null,
+    noCover: true,
+  });
+});
+
+test("parseOembed returns false when there's nothing usable", () => {
+  assert.equal(parseOembed(null), false);
+  assert.equal(parseOembed("nope"), false);
+  assert.equal(parseOembed({}), false);
+  assert.equal(parseOembed({ title: "   " }), false);
+  assert.equal(parseOembed({ thumbnail_url: "" }), false);
 });
 
 // --- normalizePlaybackState ------------------------------------------------

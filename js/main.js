@@ -173,6 +173,12 @@ const customNameByContext = new Map();
 const bookmarkedContexts = new Set();
 let lastTrackId = null;
 
+// contextKey -> a playlist name resolveContextName() looked up for a playlist
+// we're playing but haven't bookmarked, so the Now playing card can name an
+// editorial mix. contextNameTried caps it at one attempt per context/session.
+const contextNameHints = new Map();
+const contextNameTried = new Set();
+
 // The one bookmark whose tracklist is expanded, and a per-context cache of
 // fetched tracks ("loading" | Track[] | null). Survives list re-renders.
 let expandedId = null;
@@ -283,13 +289,15 @@ function renderNowPlaying() {
   } else if (context.type === "playlist") {
     // A playlist's name isn't in the /me/player payload and we no longer
     // spend a poll-loop request to look it up. Use the name you gave the
-    // matching bookmark, else the name stored on it when it was saved; a
-    // playlist you haven't bookmarked just shows "In a playlist".
+    // matching bookmark, else the name stored on it when it was saved, else
+    // a name resolveContextName() fetched once (Web API, then oEmbed); a
+    // playlist that's none of those just shows "In a playlist".
     const key = contextKey(context.type, context.id);
     const name =
       customNameByContext.get(key) ||
       context.name ||
-      storedBookmarkField(key, "contextName");
+      storedBookmarkField(key, "contextName") ||
+      contextNameHints.get(key);
     metaLines.push(name ? `Playlist · ${escapeHtml(name)}` : "In a playlist");
   }
   // An album context adds nothing — the "Album ·" line above already names it.
@@ -1057,6 +1065,36 @@ async function runPoll() {
   // the app's steady-state API traffic and the call that kept 429-ing.
   // renderNowPlaying() falls back to the bookmarked name (or "In a playlist").
   renderNowPlaying();
+  resolveContextName(snapshot); // one-shot, off the poll critical path
+}
+
+// One name lookup for a playlist we're playing but haven't bookmarked, so the
+// Now playing card can name it (getContextMeta tries the Web API, then
+// open.spotify.com/oembed for an editorial mix). Not awaited by the poll
+// loop, capped at one attempt per context per session, and skipped entirely
+// once a bookmark for it exists.
+async function resolveContextName(snapshot) {
+  const ctx = snapshot?.context;
+  if (!ctx || ctx.type !== "playlist") return;
+  const key = contextKey(ctx.type, ctx.id);
+  if (
+    contextNameTried.has(key) ||
+    bookmarkedContexts.has(key) ||
+    customNameByContext.has(key) ||
+    storedBookmarkField(key, "contextName")
+  ) {
+    return;
+  }
+  contextNameTried.add(key);
+  try {
+    const meta = await getContextMeta(ctx.type, ctx.id);
+    if (!meta.name) return;
+    contextNameHints.set(key, meta.name);
+    const now = currentSnapshot?.context;
+    if (now && contextKey(now.type, now.id) === key) renderNowPlaying();
+  } catch (err) {
+    console.error("Context-name lookup failed:", err);
+  }
 }
 
 function startPolling() {
@@ -1164,6 +1202,8 @@ function enterLoggedOut() {
   el.bookmarkFilter.value = "";
   expandedId = null;
   expandedTracks.clear();
+  contextNameHints.clear();
+  contextNameTried.clear();
   el.loginView.hidden = false;
   el.appView.hidden = true;
 }

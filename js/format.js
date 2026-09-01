@@ -120,6 +120,21 @@ export function smallestImageUrl(images) {
   return smallest.url || null;
 }
 
+/**
+ * Pull `{ name, imageUrl, noCover }` out of an `open.spotify.com/oembed`
+ * response body — the fallback metadata source for editorial / algorithmic
+ * playlists the Web API returns 404 for (see getContextMeta). Returns `false`
+ * when the body has nothing usable.
+ */
+export function parseOembed(data) {
+  if (!data || typeof data !== "object") return false;
+  const title = typeof data.title === "string" ? data.title.trim() : "";
+  const name = title || null;
+  const thumb = typeof data.thumbnail_url === "string" ? data.thumbnail_url : "";
+  const imageUrl = thumb.startsWith("https://") ? thumb : null;
+  return name || imageUrl ? { name, imageUrl, noCover: !imageUrl } : false;
+}
+
 // Playback contexts we can bookmark and resume into. Spotify also reports
 // "artist" and "show" (podcast) contexts, but those don't resume to an exact
 // track + position the way playlists and albums do, so we ignore them.

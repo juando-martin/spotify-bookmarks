@@ -154,6 +154,29 @@ Original backlog #1–#12, plus everything added along the way:
   `myspot:sessionexpired` window event; `main.js` drops to the login view
   with "Your Spotify session expired — log in again" instead of leaving the
   app stuck behind a misleading "reload to try again".
+- **oEmbed fallback for editorial playlists** — when the Web API 404s a
+  playlist/album (`/playlists/{id}` is locked out for Development-Mode apps
+  since Nov 2024), `getContextMeta()` falls back to
+  `https://open.spotify.com/oembed?url=…` — the public, unauthenticated,
+  CORS-open (`access-control-allow-origin: *`) endpoint blog embeds use,
+  on a *separate* rate limit from `api.spotify.com`. It returns the real
+  `title` and a 300px `thumbnail_url` (`i.scdn.co`), so Today's Top Hits,
+  RapCaviar, mood/genre mixes etc. now get their real name **and** cover
+  with no user action — stored in the existing `contextName` / `imageUrl`
+  fields, no new Firestore field, no rules change. `parseOembed()` is pure
+  + unit-tested in `js/format.js`; the fetch/orchestration is in
+  `js/spotifyApi.js`. A one-shot `resolveContextName()` in `main.js` also
+  names an unbookmarked editorial playlist on the Now playing card (off the
+  poll tick, one attempt per context/session). `getContextMeta(…, {force})`
+  now also clears a prior "unreadable" mark, so ↻ retries oEmbed too.
+  What oEmbed still can't see: a genuinely private playlist, or a
+  personalized mix (Discover Weekly / Daily Mix) that isn't public on
+  open.spotify.com — those keep the generated tile + ✎ rename.
+
+  This makes the user-uploaded custom tile image (proposal C / suggestion
+  #1) mostly unnecessary — deferred unless the remaining niche (private /
+  personalized playlists, or wanting different art than Spotify's) turns
+  out to matter.
 - **Runtime config (`config.json`)** — the Spotify Client ID and Firebase
   web config moved out of the JS bundle into `./config.json`, fetched and
   validated at startup (`js/runtimeConfig.js` → `applyRuntimeConfig()` in

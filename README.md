@@ -23,10 +23,14 @@ moving Firebase projects later is a one-file edit — no version bump.
 - **Bookmark list** — cover-art thumbnail, saved position ("resumes at
   2:34"), last-used relative time, ordered most-recently-used first, with a
   filter box (matches name / track / artist).
-- **Playlist tiles** — a playlist Spotify won't give the app artwork for
-  (its editorial mixes, or a bare playlist) gets a tile drawn from its name.
-  Six styles in Settings, plus "Song art" and "Blank"; optionally replace
-  every playlist's cover with it.
+- **Editorial playlists** — Spotify's Web API 404s their name and cover for
+  a Development-Mode app; the app falls back to the public
+  `open.spotify.com/oembed` endpoint, so Today's Top Hits, RapCaviar and the
+  like still show their real name and artwork.
+- **Playlist tiles** — a playlist with genuinely no artwork (a private
+  personalized mix, a bare playlist) gets a tile drawn from its name. Six
+  styles in Settings, plus "Song art" and "Blank"; optionally replace every
+  playlist's cover with it.
 - **List tools** (off by default — see the `listtools` flag below): a
   **Find a playlist or album** search box, and **Pick a track** on any
   bookmark to play a different song from its playlist/album.
@@ -245,22 +249,32 @@ Redirect URI matches the real deployed URL).
   stored until re-saved.
 - The poll loop is deliberately just `GET /me/player`. A playlist's name
   isn't in that payload, so the Now playing card takes the name from the
-  matching bookmark (`customName` / `contextName`); a playlist you're
-  playing but haven't bookmarked shows "In a playlist". This is what keeps
-  steady-state traffic to one request per interval — an earlier build
-  looked the name up every tick and that call is what kept getting 429'd.
+  matching bookmark (`customName` / `contextName`); for a playlist you're
+  playing but haven't bookmarked it does **one** name lookup per context per
+  session (`GET /playlists/{id}`, then oEmbed — see the editorial-playlist
+  note below), off the poll tick, and shows "In a playlist" until that
+  lands. This keeps steady-state traffic to one request per interval — an
+  earlier build looked the name up *every* tick and that call is what kept
+  getting 429'd.
 - Reading a **private or collaborative** playlist's name needs the
   `playlist-read-private` / `playlist-read-collaborative` scopes (in
   `js/config.js`). If you added these to an existing install, **log out and
   back in** once to re-consent, or playlist names stay blank ("In a
   playlist").
-- Spotify-owned **editorial / algorithmic** playlists (Discover Weekly,
-  Daily Mix, Release Radar, artist/mood Mixes, …) can't be read via the Web
-  API for Development-Mode apps, so their name won't resolve — the bookmark
-  shows "Unknown playlist" and the Now playing card shows "In a playlist",
-  and the thumbnail is drawn as a generated tile (or whatever the Playlist
-  tile setting says). Bookmarking and resuming still work; rename it (✎) to
-  give it a name.
+- Spotify-owned **editorial / algorithmic** playlists (Today's Top Hits,
+  RapCaviar, mood/genre mixes, …) can't be read via the Web API for
+  Development-Mode apps (it 404s). When that happens the app falls back to
+  **`open.spotify.com/oembed`** — the same public endpoint blog embeds use.
+  It's unauthenticated, CORS-open, and on a separate rate limit from
+  `api.spotify.com`, and it returns the playlist's real **name and cover**,
+  so most editorial playlists now resolve normally with no action from you.
+  The fallback lives in `getContextMeta()` (`js/spotifyApi.js`); the cover
+  URL it hands back is an `i.scdn.co` link, stored in `imageUrl` exactly
+  like a Web-API cover. What oEmbed *can't* see is a playlist that isn't
+  public on `open.spotify.com` — a truly private playlist, or a personalized
+  mix like **Discover Weekly / Daily Mix**. Those still show "Unknown
+  playlist" + a generated tile; rename with ✎ to give them a name (it
+  sticks — the playlist ID is stable even as the contents rotate).
 - Every bookmark has a **✎ rename** control next to its name. The custom
   name is stored per bookmark (`customName`), shown instead of Spotify's
   (clear the field to fall back), and survives re-saves and auto-bookmarks.
@@ -269,12 +283,13 @@ Redirect URI matches the real deployed URL).
   ID is stable (Discover Weekly keeps the same URI forever, only its
   contents rotate), so a name you set once sticks.
 - Next to ✎ is a **↻ refresh** control — re-asks Spotify for the playlist's
-  real name and cover (bypassing the session cache and the failure
-  cooldown, but not a confirmed 404 or the rate-limit pause) and, for an
-  old bookmark, backfills the saved track's art via `GET /tracks/{id}`.
-  Merges just the changed fields; doesn't touch the saved spot or the
-  ordering. Use it to unstick an "Unknown playlist" or a blank Song-art
-  tile without replaying the playlist.
+  real name and cover and, for an old bookmark, backfills the saved track's
+  art via `GET /tracks/{id}`. It bypasses the session cache, the failure
+  cooldown, *and* a prior "unreadable" mark — a full retry of the Web API
+  **and** the oEmbed fallback (not the global rate-limit pause). Merges just
+  the changed fields; doesn't touch the saved spot or the ordering. Use it
+  to unstick an "Unknown playlist" or a blank Song-art tile without
+  replaying the playlist.
 - If the Spotify **refresh token** is finally rejected (revoked, or long
   unused), the app clears its tokens, drops to the login screen, and shows
   "Your Spotify session expired — log in again". A reload wouldn't help;
@@ -294,8 +309,10 @@ Redirect URI matches the real deployed URL).
   state machine is `createRateLimiter()` in `js/rateLimit.js` and the wait
   math is `rateLimitWaitSeconds()` in `js/format.js` — both unit-tested.
 - A playlist whose name/cover can't be read is backed off so it isn't
-  re-requested on the next save: a 404 (editorial playlist) for the rest of
-  the session, a 429 for 15 minutes, any other failure for 10 minutes.
+  re-requested on the next save: a 404 where the oEmbed fallback also can't
+  see it (a private / personalized playlist) for the rest of the session; a
+  429 for 15 minutes; a transient oEmbed failure or any other error for 10
+  minutes.
 - The **Settings** card (a foldable `<details>`, collapsed by default, state
   remembered per device) has:
   - **Auto-bookmark when I switch playlist or album** — on by default; saves
@@ -360,9 +377,10 @@ Redirect URI matches the real deployed URL).
   writes queue and retry through connectivity blips, and the list loads from
   cache first, then revalidates. Falls back to memory-only where IndexedDB
   isn't available.
-- Names/covers for playlists that return 404 (Spotify's editorial Mixes) are
-  negative-cached for the session, so a bookmark save doesn't re-request one
-  that's known to be unreadable.
+- A playlist that returns 404 from the Web API *and* has no public
+  `open.spotify.com/oembed` data is negative-cached for the session, so a
+  bookmark save doesn't re-request one that's known to be unreadable. The ↻
+  button clears that mark for a one-off retry.
 - **Runtime config.** The Spotify Client ID and the Firebase web config load
   from `./config.json` at startup (`js/runtimeConfig.js`), not from the JS
   bundle — so if a Client ID is ever revoked, or you move to a new Firebase
@@ -398,9 +416,9 @@ js/config.js              Static config: OAuth scopes, redirect URI, poll-interv
 js/runtimeConfig.js       Loads + validates config.json at startup (unit-tested)
 js/pkce.js                PKCE code_verifier/code_challenge helpers
 js/auth.js                Spotify OAuth login/redirect/token refresh (shared single-flight)
-js/spotifyApi.js          Spotify Web API wrapper (playback state, resume, transport, devices, playlist/album meta)
+js/spotifyApi.js          Spotify Web API wrapper (playback, resume, transport, devices, meta + open.spotify.com/oembed fallback)
 js/rateLimit.js           The 429 back-off state machine (persisted deadline, escalation, cross-tab) — unit-tested
-js/format.js              Pure helpers: formatting, playback-state normalization, tile monogram + hash, 429 wait math (unit-tested)
+js/format.js              Pure helpers: formatting, playback-state normalization, oEmbed parse, tile monogram + hash, 429 wait math (unit-tested)
 js/tiles.js               Generated placeholder cover tiles — canvas → data URL, six styles
 js/firebaseBookmarks.js   Firestore bookmark storage (one doc per playlist/album per user)
 js/version.js             APP_VERSION string — bump with sw.js CACHE_NAME each deploy
@@ -417,8 +435,8 @@ icons/                    App icons for the PWA manifest
 No build step — it's plain ES modules served as files. To run the unit tests
 (`js/format.js` helpers, `normalizePlaybackState`, the bookmark sort key, the
 429 wait math + the `js/rateLimit.js` back-off state machine, the tile
-monogram, a check that the client's bookmark fields all pass
-`firestore.rules`, and the `config.json` loader + validator):
+monogram, the oEmbed response parser, a check that the client's bookmark
+fields all pass `firestore.rules`, and the `config.json` loader + validator):
 
 ```bash
 npm test        # == node --test  (needs Node 18+, no dependencies)
