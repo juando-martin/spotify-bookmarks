@@ -7,6 +7,7 @@ import {
   escapeHtml,
   bookmarkName,
   bookmarkMatches,
+  bookmarkableContext,
   formatDuration,
   formatRelative,
   spotifyWebUrl,
@@ -276,6 +277,48 @@ test("normalizePlaybackState joins multiple artists", () => {
     context: null,
   });
   assert.equal(snap.track.artists, "A, B, C");
+});
+
+// --- bookmarkableContext ---------------------------------------------------
+
+test("bookmarkableContext returns the real context when there is one", () => {
+  const snap = normalizePlaybackState({
+    is_playing: true,
+    progress_ms: 0,
+    item: trackItem,
+    context: { type: "playlist", uri: "spotify:playlist:P1" },
+  });
+  assert.deepEqual(bookmarkableContext(snap), snap.context);
+});
+
+test("bookmarkableContext falls back to the track's album when there's no context", () => {
+  const snap = normalizePlaybackState({
+    is_playing: true,
+    progress_ms: 0,
+    item: trackItem,
+    context: { type: "artist", uri: "spotify:artist:AR1" },
+  });
+  assert.equal(snap.context, null); // artist isn't resumable
+  assert.deepEqual(bookmarkableContext(snap), {
+    type: "album",
+    id: "AL777",
+    uri: "spotify:album:AL777",
+    name: "Songs from a Room",
+  });
+});
+
+test("bookmarkableContext returns null when there's nothing resumable (e.g. a podcast episode)", () => {
+  const snap = normalizePlaybackState({
+    is_playing: true,
+    progress_ms: 0,
+    item: { id: "e1", uri: "spotify:episode:e1", name: "Ep", artists: [] },
+    context: { type: "show", uri: "spotify:show:s1" },
+  });
+  assert.equal(bookmarkableContext(snap), null);
+});
+
+test("bookmarkableContext returns null for a null snapshot", () => {
+  assert.equal(bookmarkableContext(null), null);
 });
 
 // --- bookmarkUsedMs ------------------------------------------------------------

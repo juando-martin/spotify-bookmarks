@@ -185,6 +185,21 @@ export function normalizePlaybackState(data) {
 }
 
 /**
+ * The context a manual bookmark should target: the real resumable context
+ * (playlist/album) if there is one, otherwise the current track's album — so
+ * you can still bookmark a spot while playing from an artist page or a bare
+ * track. null when there's nothing resumable to save (e.g. a podcast).
+ */
+export function bookmarkableContext(snapshot) {
+  if (snapshot?.context) return snapshot.context;
+  const t = snapshot?.track;
+  if (t?.albumId && t?.albumUri) {
+    return { type: "album", id: t.albumId, uri: t.albumUri, name: t.albumName ?? null };
+  }
+  return null;
+}
+
+/**
  * How long (in seconds) to stop hitting the Spotify API after a 429.
  *
  *   retryAfter — the response's `Retry-After` header in seconds. Any

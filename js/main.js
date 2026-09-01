@@ -3,6 +3,7 @@ import { POLL_INTERVAL_MS, applyRuntimeConfig } from "./config.js";
 import { loadRuntimeConfig, ConfigError } from "./runtimeConfig.js";
 import { APP_VERSION } from "./version.js";
 import {
+  bookmarkableContext,
   bookmarkMatches,
   bookmarkName,
   bookmarkUsedMs,
@@ -129,8 +130,33 @@ const settings = loadSettings();
 // The kiosk / always-on setup (see README) launches with ?background to keep
 // the poll loop running even when the page isn't the visible tab.
 const KEEP_POLLING_WHEN_HIDDEN = new URLSearchParams(location.search).has("background");
-// PWA shortcut intent — read before anything rewrites the URL.
+// PWA shortcut intent — read before anything rewrites the URL. If we're not
+// logged in yet, the login redirect to Spotify and back loses any query
+// param (the fixed redirectUri carries none), so stash it in sessionStorage
+// the same way auth.js stashes the PKCE verifier/state across that same
+// round trip, and read it back in enterApp() via consumePendingShortcutAction().
+const SHORTCUT_ACTION_KEY = "sb_pending_shortcut";
 const shortcutAction = new URLSearchParams(location.search).get("action");
+if (shortcutAction) {
+  try {
+    sessionStorage.setItem(SHORTCUT_ACTION_KEY, shortcutAction);
+  } catch {
+    /* private mode / storage disabled — shortcut just won't survive a login redirect */
+  }
+}
+
+/** The pending shortcut action, if any — from the URL, else a login redirect
+ *  earlier stashed in sessionStorage. One-shot: always clears the stash. */
+function consumePendingShortcutAction() {
+  let action = shortcutAction;
+  try {
+    if (!action) action = sessionStorage.getItem(SHORTCUT_ACTION_KEY);
+    sessionStorage.removeItem(SHORTCUT_ACTION_KEY);
+  } catch {
+    /* private mode / storage disabled */
+  }
+  return action;
+}
 
 // Hidden flag — the catalogue search and the inline "Pick a track" list both
 // hit endpoints (/search, /playlists/{id}/tracks) that burn through a
@@ -289,7 +315,7 @@ function renderNowPlaying() {
   if (!context) {
     metaLines.push(
       albumFallback
-        ? "No playlist or album context — bookmarking saves the album above"
+        ? "No playlist or album context — bookmarking saves this track's album"
         : "Nothing here to bookmark",
     );
   } else if (context.type === "playlist") {
@@ -330,21 +356,6 @@ function storedBookmarkField(key, field) {
   const v = bm?.[field];
   if (field === "contextName" && typeof v === "string" && v.startsWith("Unknown ")) return null;
   return v || null;
-}
-
-/**
- * The context a manual bookmark should target: the real resumable context
- * (playlist/album) if there is one, otherwise the current track's album — so
- * you can still bookmark a spot while playing from an artist page or a bare
- * track. null when there's nothing resumable to save (e.g. a podcast).
- */
-function bookmarkableContext(snapshot) {
-  if (snapshot?.context) return snapshot.context;
-  const t = snapshot?.track;
-  if (t?.albumId && t?.albumUri) {
-    return { type: "album", id: t.albumId, uri: t.albumUri, name: t.albumName ?? null };
-  }
-  return null;
 }
 
 async function buildBookmarkFromSnapshot(snapshot) {
@@ -931,7 +942,7 @@ async function onManualBookmark() {
     console.error(err);
     setBookmarkStatus("Couldn't save bookmark.", "error");
   } finally {
-    el.bookmarkBtn.disabled = !bookmarkableContext(currentSnapshot);
+    renderNowPlaying(); // re-sync the button's disabled state AND label
   }
 }
 
@@ -1196,7 +1207,7 @@ async function enterApp() {
   startPolling();
   startProgressTicker();
 
-  if (shortcutAction === "resume-last") await resumeLastBookmark();
+  if (consumePendingShortcutAction() === "resume-last") await resumeLastBookmark();
 }
 
 async function resumeLastBookmark() {
