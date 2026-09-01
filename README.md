@@ -16,6 +16,8 @@ moving Firebase projects later is a one-file edit — no version bump.
 
 - **Bookmark & resume** the exact track + position inside a playlist or
   album. Resume drops you back there with the queue continuing normally.
+  Playing from an artist page or a bare track instead? The button becomes
+  **"Bookmark this album"** and saves the current track's album at that spot.
 - **Auto-bookmark on switch** — leaving a playlist/album saves where you
   were, automatically (toggle in Settings).
 - **Now playing card** — album art, track / album / playlist name, and
@@ -221,12 +223,15 @@ Redirect URI matches the real deployed URL).
   each entry is sanitized to the whitelisted fields before writing, and a
   bookmark for a playlist/album you already have is overwritten. Your only
   copy of the data is otherwise the one Firestore collection.
-- Only **playlist** and **album** contexts can be bookmarked. Spotify also
-  reports "artist" (e.g. artist radio / an artist page) and "show" (podcast)
-  contexts, but those don't resume to an exact track + position reliably, so
-  **Bookmark this spot** stays disabled for them ("Not in a playlist or
-  album context"). Playing a bare track with no context also can't be
-  bookmarked.
+- Bookmarks are always **playlist** or **album** contexts. When you're
+  playing from an **artist** page, from Liked Songs, or a bare track with no
+  context at all, there's no resumable list to save a spot in — so the
+  button becomes **"Bookmark this album"** and saves an ordinary album
+  bookmark for the *current track's* album, at that track and position.
+  Resume then plays that album from there. (A **podcast** episode has no
+  album, so the button stays disabled — Spotify already remembers episode
+  position natively.) Auto-bookmark-on-switch is unchanged: it still only
+  fires for playlist/album contexts.
 - Bookmarks are keyed one-per-context: re-bookmarking the same playlist or
   album overwrites its previous bookmark in place. A playlist and an album
   are always separate bookmarks even in the unlikely event their IDs match

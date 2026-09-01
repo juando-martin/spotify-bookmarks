@@ -151,7 +151,12 @@ const trackItem = {
   name: "Bird on the Wire",
   duration_ms: 198_000,
   artists: [{ name: "Leonard Cohen" }],
-  album: { name: "Songs from a Room", images: [{ url: "art64", width: 64 }, { url: "art640", width: 640 }] },
+  album: {
+    id: "AL777",
+    uri: "spotify:album:AL777",
+    name: "Songs from a Room",
+    images: [{ url: "art64", width: 64 }, { url: "art640", width: 640 }],
+  },
 };
 
 test("normalizePlaybackState returns null when there is nothing to show", () => {
@@ -176,11 +181,35 @@ test("normalizePlaybackState maps a track playing inside a playlist", () => {
       name: "Bird on the Wire",
       artists: "Leonard Cohen",
       albumName: "Songs from a Room",
+      albumId: "AL777",
+      albumUri: "spotify:album:AL777",
       durationMs: 198_000,
       imageUrl: "art64",
     },
     context: { type: "playlist", id: "PL123", uri: "spotify:playlist:PL123", name: null },
   });
+});
+
+test("normalizePlaybackState keeps the track's album id/uri for the bookmark fallback", () => {
+  const artistCtx = normalizePlaybackState({
+    is_playing: true,
+    progress_ms: 5_000,
+    item: trackItem,
+    context: { type: "artist", uri: "spotify:artist:AR1" },
+  });
+  assert.equal(artistCtx.context, null); // artist isn't resumable
+  assert.equal(artistCtx.track.albumId, "AL777");
+  assert.equal(artistCtx.track.albumUri, "spotify:album:AL777");
+
+  // a podcast episode has no album — the fallback fields stay null
+  const episode = normalizePlaybackState({
+    is_playing: true,
+    progress_ms: 0,
+    item: { id: "e1", uri: "spotify:episode:e1", name: "Ep", artists: [] },
+    context: { type: "show", uri: "spotify:show:s1" },
+  });
+  assert.equal(episode.track.albumId, null);
+  assert.equal(episode.track.albumUri, null);
 });
 
 test("normalizePlaybackState carries track duration, null when absent", () => {

@@ -273,6 +273,7 @@ function renderNowPlaying() {
   if (!currentSnapshot) {
     el.nowPlaying.textContent = "Nothing playing right now.";
     el.bookmarkBtn.disabled = true;
+    el.bookmarkBtn.textContent = "Bookmark this spot";
     return;
   }
 
@@ -284,8 +285,13 @@ function renderNowPlaying() {
   if (track.albumName) {
     metaLines.push(`Album · ${escapeHtml(track.albumName)}`);
   }
+  const albumFallback = !context && bookmarkableContext(currentSnapshot);
   if (!context) {
-    metaLines.push("Not in a playlist or album context");
+    metaLines.push(
+      albumFallback
+        ? "No playlist or album context — bookmarking saves the album above"
+        : "Nothing here to bookmark",
+    );
   } else if (context.type === "playlist") {
     // A playlist's name isn't in the /me/player payload and we no longer
     // spend a poll-loop request to look it up. Use the name you gave the
@@ -313,7 +319,8 @@ function renderNowPlaying() {
       ${metaLines.map((line) => `<span class="track-meta">${line}</span>`).join("")}
     </div>
   `;
-  el.bookmarkBtn.disabled = !context;
+  el.bookmarkBtn.disabled = !(context || albumFallback);
+  el.bookmarkBtn.textContent = albumFallback ? "Bookmark this album" : "Bookmark this spot";
 }
 
 /** The contextName / imageUrl already stored for this context, if any — so a
@@ -325,8 +332,23 @@ function storedBookmarkField(key, field) {
   return v || null;
 }
 
+/**
+ * The context a manual bookmark should target: the real resumable context
+ * (playlist/album) if there is one, otherwise the current track's album — so
+ * you can still bookmark a spot while playing from an artist page or a bare
+ * track. null when there's nothing resumable to save (e.g. a podcast).
+ */
+function bookmarkableContext(snapshot) {
+  if (snapshot?.context) return snapshot.context;
+  const t = snapshot?.track;
+  if (t?.albumId && t?.albumUri) {
+    return { type: "album", id: t.albumId, uri: t.albumUri, name: t.albumName ?? null };
+  }
+  return null;
+}
+
 async function buildBookmarkFromSnapshot(snapshot) {
-  const { type, id, uri, name } = snapshot.context;
+  const { type, id, uri, name } = bookmarkableContext(snapshot);
   const key = contextKey(type, id);
 
   // The bookmark's thumbnail is the playlist/album *cover*. For an album the
@@ -896,7 +918,7 @@ function onRemove(bookmark, li) {
 }
 
 async function onManualBookmark() {
-  if (!currentSnapshot?.context) return;
+  if (!bookmarkableContext(currentSnapshot)) return;
   el.bookmarkBtn.disabled = true;
   setBookmarkStatus("Saving…");
   try {
@@ -909,7 +931,7 @@ async function onManualBookmark() {
     console.error(err);
     setBookmarkStatus("Couldn't save bookmark.", "error");
   } finally {
-    el.bookmarkBtn.disabled = !currentSnapshot?.context;
+    el.bookmarkBtn.disabled = !bookmarkableContext(currentSnapshot);
   }
 }
 

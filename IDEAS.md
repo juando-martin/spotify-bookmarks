@@ -154,6 +154,17 @@ Original backlog #1–#12, plus everything added along the way:
   `myspot:sessionexpired` window event; `main.js` drops to the login view
   with "Your Spotify session expired — log in again" instead of leaving the
   app stuck behind a misleading "reload to try again".
+- **Artist / no-context → bookmark the track's album** — playing from an
+  artist page (`spotify:artist:…`, not resumable), from Liked Songs, or a
+  bare track with no context used to leave "Bookmark this spot" disabled.
+  Now `bookmarkableContext()` in `main.js` falls back to the current track's
+  album: the button relabels to **"Bookmark this album"** and saves an
+  ordinary `album_{id}` bookmark at that track + position (resume plays the
+  album from there). `normalizePlaybackState` carries `track.albumId` /
+  `albumUri` for this; no new bookmark shape, no rules change. Podcast
+  episodes have no album so the button stays disabled (Spotify remembers
+  episode position natively anyway). Auto-bookmark-on-switch is untouched —
+  still playlist/album only.
 - **oEmbed fallback for editorial playlists** — when the Web API 404s a
   playlist/album (`/playlists/{id}` is locked out for Development-Mode apps
   since Nov 2024), `getContextMeta()` falls back to
