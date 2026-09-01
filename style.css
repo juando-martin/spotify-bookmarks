@@ -570,6 +570,9 @@ button.link {
 
 .bookmark-item .context-type {
   padding: 0.05rem 0.35rem;
+  /* Cancel the pill's own left border+padding so its text lines up with the
+     flush-left text of the name/track/updated lines above and below it. */
+  margin-left: calc(-0.35rem - 1px);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 0.7rem;

@@ -554,6 +554,7 @@ function renderBookmarks() {
           <div class="updated"${usedDate ? ` title="${escapeHtml(usedDate.toLocaleString())}"` : ""}>${escapeHtml(detail.join(" · "))}</div>
         </div>
       </div>
+      ${editOpen ? `<div class="edit-panel"></div>` : ""}
       <div class="bookmark-actions">
         <button class="resume-btn">Resume</button>
         <div class="bookmark-subactions">
@@ -561,7 +562,6 @@ function renderBookmarks() {
           <button class="remove-btn">Remove</button>
         </div>
       </div>
-      ${editOpen ? `<div class="edit-panel"></div>` : ""}
       ${expanded ? `<div class="tracklist"></div>` : ""}
     `;
     li.querySelector(".resume-btn").addEventListener("click", () => onResume(bm));
