@@ -273,6 +273,24 @@ Original backlog #1–#12, plus everything added along the way:
   the update-banner-that-nukes-caches pattern (the standard workaround for
   iOS's slow/inconsistent service-worker update propagation) were already
   in place before this pass.
+- **Previous-button restart, and a track-end catch-up poll (v62)** — two
+  Now-playing-card changes. (1) `prevBtn` now behaves like a normal music
+  player: past the first 5s of a track it restarts the track (`seek(0)`)
+  instead of jumping to the actual previous track; within the first 5s it
+  still calls Spotify's `/previous`. (2) Track changes now show up promptly
+  even on a slow poll interval: each regular poll re-evaluates the fresh
+  snapshot's remaining time and, once within two poll intervals of the
+  track ending, arms a one-off `setTimeout` for ~1s after the expected end
+  (`armTrackEndTimerIfClose`/`trackEndTimer` in `main.js`). Only arming
+  that close in keeps the timer from ever being a dangling, multi-minute
+  `setTimeout` for most of a track — and two poll intervals is wide enough
+  that a regular poll is guaranteed to land inside it and do the arming,
+  given continuous polling. Any user-initiated position change (previous/
+  next/play/pause, manual seek-bar commit, resuming a bookmark) explicitly
+  clears the armed timer, since each of those already schedules its own
+  short reconciliation poll that re-arms against the corrected position —
+  a stale timer firing in that short gap is harmless anyway (just one
+  redundant poll), the explicit clear just avoids the noise.
 
 ## Left
 

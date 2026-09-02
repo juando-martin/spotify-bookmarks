@@ -318,6 +318,36 @@ function stopProgressTicker() {
   progressTicker = null;
 }
 
+// One-off catch-up poll scheduled ~1s after the current track is expected to
+// end, so a track change shows up promptly instead of waiting for the next
+// regular poll tick (which can be up to a minute away on a slow interval).
+// Only armed once we're within two poll intervals of the end: regular
+// polling is periodic with period pollIntervalMs, so a window that wide is
+// guaranteed to have a regular poll land inside it before the track ends
+// (which is what arms this), and it keeps this timer from ever being a
+// dangling, multi-minute-long setTimeout for most of a track's length.
+let trackEndTimer = null;
+
+function clearTrackEndTimer() {
+  if (trackEndTimer) clearTimeout(trackEndTimer);
+  trackEndTimer = null;
+}
+
+// Re-evaluated from a fresh snapshot on every regular poll, and cleared by
+// any user-initiated position change (transport controls, manual seek,
+// resuming a bookmark) — those already schedule their own short reconciling
+// poll, which lands here again and re-arms against the corrected position.
+function armTrackEndTimerIfClose(snapshot) {
+  clearTrackEndTimer();
+  const dur = snapshot?.track?.durationMs;
+  const pos = snapshot?.progressMs;
+  if (!snapshot?.isPlaying || !dur || pos == null) return;
+  const remaining = dur - pos;
+  if (remaining <= 2 * settings.pollIntervalMs) {
+    trackEndTimer = setTimeout(pollOnce, Math.max(0, remaining) + 1000);
+  }
+}
+
 function renderNowPlaying() {
   renderTransport();
 
@@ -903,14 +933,31 @@ async function refreshBookmarkInfo(bm) {
   }
 }
 
+const RESTART_THRESHOLD_MS = 5000;
+
 async function onTransport(action) {
   // Optimistic play/pause flip so the button feels instant.
   if ((action === "play" || action === "pause") && currentSnapshot) {
     currentSnapshot.isPlaying = action === "play";
     renderTransport();
   }
+  // Any user-initiated transport action invalidates whatever end-of-track
+  // catch-up poll was armed — the reconciliation poll below will re-arm it
+  // against the new state.
+  clearTrackEndTimer();
+
+  // Previous-track behavior like most players: past the first few seconds,
+  // "previous" restarts the current track instead of jumping back a track.
+  const restartInstead =
+    action === "previous" && currentSnapshot?.track && estimatedMs > RESTART_THRESHOLD_MS;
   try {
-    await playbackControl(action);
+    if (restartInstead) {
+      await seek(0);
+      estimatedMs = 0;
+      renderProgress();
+    } else {
+      await playbackControl(action);
+    }
   } catch (err) {
     console.error(err);
     showToast(/\b404\b/.test(err.message)
@@ -925,6 +972,7 @@ function onPlayPause() {
 }
 
 async function onResume(bookmark, deviceId) {
+  clearTrackEndTimer(); // jumping to a bookmarked spot invalidates it too
   try {
     await resumePlayback({
       contextUri: bookmark.contextUri,
@@ -1301,6 +1349,7 @@ async function runPoll() {
   currentSnapshot = snapshot;
   lastContextSnapshot = snapshot?.context ? snapshot : null;
   if (!seekDragging) estimatedMs = snapshot?.progressMs ?? 0; // resync the progress bar
+  armTrackEndTimerIfClose(snapshot);
 
   // No per-tick /playlists lookup for the name any more — that one request,
   // fired every poll for any playlist without a stored name, was the bulk of
@@ -1351,6 +1400,7 @@ function startPolling() {
 function stopPolling() {
   if (pollHandle) clearInterval(pollHandle);
   pollHandle = null;
+  clearTrackEndTimer();
 }
 
 function handleVisibilityChange() {
@@ -1546,6 +1596,7 @@ async function init() {
     const ms = Number(el.seek.value);
     estimatedMs = ms;
     seekDragging = false;
+    clearTrackEndTimer(); // stale until the reconciliation poll below re-arms it
     try {
       await seek(ms);
     } catch (err) {
