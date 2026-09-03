@@ -11,6 +11,13 @@
       "description": "Jump back into your most recently used bookmark",
       "url": "./?action=resume-last",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Bookmark now",
+      "short_name": "Bookmark now",
+      "description": "Save whatever's currently playing",
+      "url": "./?action=bookmark-now",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ],
   "display": "standalone",

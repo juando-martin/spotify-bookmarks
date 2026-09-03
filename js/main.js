@@ -17,7 +17,7 @@ import {
   TILE_STYLE_IDS,
 } from "./format.js";
 import { isLoggedIn, loginWithSpotify, logout, handleRedirectIfPresent } from "./auth.js";
-import { getCurrentUser, getPlaybackState, getContextMeta, getContextTracks, getTrackImage, getDevices, resumePlayback, playbackControl, seek, searchContexts, rateLimitedForMs } from "./spotifyApi.js";
+import { getCurrentUser, getPlaybackState, getContextMeta, getContextTracks, getContextTrackIds, getQueue, getTrackImage, getDevices, resumePlayback, resumeContextBare, playbackControl, seek, searchContexts, rateLimitedForMs } from "./spotifyApi.js";
 import { saveBookmark, listBookmarks, removeBookmark, touchBookmark, renameBookmark, updateBookmarkFields, contextKey } from "./firebaseBookmarks.js";
 import { tileDataUrl, TILE_STYLES, DEFAULT_TILE_STYLE } from "./tiles.js";
 
@@ -45,9 +45,11 @@ const el = {
   bookmarkFilter: document.getElementById("bookmark-filter"),
   bookmarkNoMatch: document.getElementById("bookmark-no-match"),
   exportBtn: document.getElementById("export-btn"),
+  exportDownloadBtn: document.getElementById("export-download-btn"),
   exportText: document.getElementById("export-text"),
   importText: document.getElementById("import-text"),
   importBtn: document.getElementById("import-btn"),
+  importFileInput: document.getElementById("import-file-input"),
   importStatus: document.getElementById("import-status"),
   devicePicker: document.getElementById("device-picker"),
   devicePickerMsg: document.getElementById("device-picker-msg"),
@@ -265,6 +267,40 @@ function showToast(message, { actionLabel, onAction, ms = 3500 } = {}) {
 function setBookmarkStatus(message, kind) {
   el.bookmarkStatus.textContent = message || "";
   el.bookmarkStatus.className = "status" + (kind ? ` ${kind}` : "");
+  // Any plain status-set detaches from whatever a previous flash was
+  // tracking (see flashBookmarkStatus) — e.g. "Saving…" shouldn't be
+  // silently cleared mid-save by a stale check left over from an earlier
+  // "Saved: …" flash.
+  bookmarkStatusKey = null;
+  clearTimeout(bookmarkStatusTimer);
+}
+
+// Save-confirmation flavor of setBookmarkStatus: auto-clears after a while
+// so it can't sit there claiming a save that's no longer relevant (v63).
+// Pass `key` for a message that's only true as long as one specific
+// track/context is playing (manual "Saved: …", or a follow-bookmark update
+// — both describe what's about to render as "now playing"): it's cleared
+// the instant that's no longer the case, not just on the timer. An
+// auto-bookmark ("left a context") describes something that's already
+// stopped playing the moment it's shown, so it's called with no key and
+// just relies on the timer.
+const BOOKMARK_STATUS_FLASH_MS = 8000;
+let bookmarkStatusKey = null;
+let bookmarkStatusTimer = null;
+function flashBookmarkStatus(message, key = null) {
+  setBookmarkStatus(message, "success");
+  bookmarkStatusKey = key;
+  bookmarkStatusTimer = setTimeout(() => setBookmarkStatus(""), BOOKMARK_STATUS_FLASH_MS);
+}
+
+/** A key identifying the track currently playing, in its bookmarkable
+ *  context — what a flashBookmarkStatus key is compared against to tell a
+ *  save confirmation apart from stale. Null when nothing bookmarkable is
+ *  playing. */
+function currentPlaybackStatusKey() {
+  const ctx = bookmarkableContext(currentSnapshot);
+  const trackId = currentSnapshot?.track?.id;
+  return ctx && trackId ? `${contextKey(ctx.type, ctx.id)}::${trackId}` : null;
 }
 
 // Progress bar: `estimatedMs` advances once a second between polls so the bar
@@ -318,19 +354,43 @@ function stopProgressTicker() {
   progressTicker = null;
 }
 
-// One-off catch-up poll scheduled ~1s after the current track is expected to
-// end, so a track change shows up promptly instead of waiting for the next
-// regular poll tick (which can be up to a minute away on a slow interval).
-// Only armed once we're within two poll intervals of the end: regular
-// polling is periodic with period pollIntervalMs, so a window that wide is
-// guaranteed to have a regular poll land inside it before the track ends
-// (which is what arms this), and it keeps this timer from ever being a
-// dangling, multi-minute-long setTimeout for most of a track's length.
+// Track-end handling (IDEAS.md #14) — two parts, both only armed once
+// within two poll intervals of the track's expected end (regular polling
+// is periodic with period pollIntervalMs, so a window that wide is
+// guaranteed to have a regular poll land inside it and do the arming,
+// given continuous polling — and it keeps these timers from ever being
+// dangling, multi-minute-long setTimeouts for most of a track's length):
+//
+// 1. trackEndTimer — a catch-up poll ~1s after the track is expected to
+//    end, so a track change is confirmed/corrected promptly instead of
+//    waiting for the next regular poll tick (which can be up to a minute
+//    away on a slow interval). This alone was v62; still the ground truth.
+// 2. trackSwapTimer — fires right at the expected boundary and shows what
+//    Spotify's own queue said was next (pre-fetched at arm time, not at
+//    swap time, so there's no network round-trip lag right when it
+//    matters), driven by the local progress timer instead of waiting for
+//    a poll — so the card can visibly change in sync with the music
+//    instead of a few seconds behind. trackEndTimer above is what then
+//    confirms it (or corrects the display if the prediction didn't hold —
+//    a skip from elsewhere, etc. — an accepted, self-correcting "wrong
+//    song for a second" trade-off). Skipped entirely under repeat-track:
+//    the queue's next item is the next *distinct* track even though the
+//    same one is about to repeat, so predicting it would be wrong every
+//    single loop.
 let trackEndTimer = null;
+let trackSwapTimer = null;
+let predictedDisplay = null; // { id, uri, name, artists, imageUrl } | null — see renderNowPlaying()
+let trackEndArmId = 0; // invalidates an in-flight getQueue() fetch from a since-superseded arm
 
 function clearTrackEndTimer() {
-  if (trackEndTimer) clearTimeout(trackEndTimer);
+  trackEndArmId++; // any in-flight getQueue() fetch from the last arm is now stale
+  clearTimeout(trackEndTimer);
+  clearTimeout(trackSwapTimer);
   trackEndTimer = null;
+  trackSwapTimer = null;
+  const hadPrediction = predictedDisplay !== null;
+  predictedDisplay = null;
+  if (hadPrediction) renderNowPlaying(); // drop back to the real, confirmed track
 }
 
 // Re-evaluated from a fresh snapshot on every regular poll, and cleared by
@@ -343,13 +403,34 @@ function armTrackEndTimerIfClose(snapshot) {
   const pos = snapshot?.progressMs;
   if (!snapshot?.isPlaying || !dur || pos == null) return;
   const remaining = dur - pos;
-  if (remaining <= 2 * settings.pollIntervalMs) {
-    trackEndTimer = setTimeout(pollOnce, Math.max(0, remaining) + 1000);
-  }
+  if (remaining > 2 * settings.pollIntervalMs) return;
+
+  trackEndTimer = setTimeout(pollOnce, Math.max(0, remaining) + 1000);
+  if (snapshot.repeatState === "track") return; // see comment above
+
+  const armId = ++trackEndArmId;
+  let fetchedNext = null;
+  getQueue()
+    .then((next) => {
+      if (armId === trackEndArmId) fetchedNext = next; // still the live arm
+    })
+    .catch(() => {});
+  trackSwapTimer = setTimeout(() => {
+    if (armId !== trackEndArmId || !fetchedNext) return; // superseded, or the fetch didn't land in time
+    predictedDisplay = fetchedNext;
+    renderNowPlaying();
+  }, Math.max(0, remaining));
 }
 
 function renderNowPlaying() {
   renderTransport();
+
+  // A save-confirmation message tied to a specific track/context stops
+  // being true the instant something else is playing — don't wait for its
+  // timer to notice.
+  if (bookmarkStatusKey && bookmarkStatusKey !== currentPlaybackStatusKey()) {
+    setBookmarkStatus("");
+  }
 
   if (!currentSnapshot) {
     el.nowPlaying.textContent = "Nothing playing right now.";
@@ -358,7 +439,12 @@ function renderNowPlaying() {
     return;
   }
 
-  const { track, context, isPlaying } = currentSnapshot;
+  const { context, isPlaying } = currentSnapshot;
+  // Predictive track-swap (IDEAS.md #14): while armed and unconfirmed, show
+  // what the queue says is next instead of currentSnapshot's still-old
+  // track — everything else (transport, seek bar, the bookmark button)
+  // stays tied to the real, confirmed snapshot.
+  const track = predictedDisplay || currentSnapshot.track;
 
   const metaLines = [
     escapeHtml(`${track.artists}${isPlaying ? "" : " (paused)"}`),
@@ -389,9 +475,14 @@ function renderNowPlaying() {
   }
   // An album context adds nothing — the "Album ·" line above already names it.
 
-  const art = track.imageUrl
-    ? `<img class="np-art" src="${escapeHtml(track.imageUrl)}" alt="" width="64" height="64" />`
+  const artInner = track.imageUrl
+    ? `<img class="np-art" src="${escapeHtml(track.imageUrl)}" alt="" width="${BOOKMARK_ART_SIZE}" height="${BOOKMARK_ART_SIZE}" />`
     : `<div class="np-art np-art-empty" aria-hidden="true"></div>`;
+  const art = track.uri
+    ? `<a class="art-link" href="${escapeHtml(spotifyWebUrl(track.uri))}" target="_blank" rel="noopener"` +
+      ` title="Open in Spotify" aria-label="Open ${escapeHtml(track.name)} in Spotify">` +
+      `${artInner}<span class="art-badge" aria-hidden="true">↗</span></a>`
+    : artInner;
 
   el.nowPlaying.innerHTML = `
     ${art}
@@ -598,19 +689,15 @@ function renderBookmarks() {
       ${editOpen ? `<div class="edit-panel"></div>` : ""}
       <div class="bookmark-actions">
         <button class="resume-btn">Resume</button>
-        <div class="bookmark-subactions">
-          ${LIST_TOOLS_ENABLED ? `<button class="tracks-btn" aria-expanded="${expanded}">${expanded ? "Hide tracks" : "Pick a track"}</button>` : ""}
-          <button class="remove-btn">Remove</button>
-        </div>
+        ${LIST_TOOLS_ENABLED ? `<div class="bookmark-subactions"><button class="tracks-btn" aria-expanded="${expanded}">${expanded ? "Hide tracks" : "Pick a track"}</button></div>` : ""}
       </div>
       ${expanded ? `<div class="tracklist"></div>` : ""}
     `;
     li.querySelector(".resume-btn").addEventListener("click", () => onResume(bm));
-    li.querySelector(".remove-btn").addEventListener("click", () => onRemove(bm, li));
     li.querySelector(".refresh-btn").addEventListener("click", () => refreshBookmarkInfo(bm));
     li.querySelector(".edit-btn").addEventListener("click", () => toggleEditPanel(bm));
     li.querySelector(".tracks-btn")?.addEventListener("click", () => toggleTracks(bm));
-    if (editOpen) renderEditPanelInto(li.querySelector(".edit-panel"), bm);
+    if (editOpen) renderEditPanelInto(li.querySelector(".edit-panel"), bm, li);
     if (expanded) renderTracksInto(li.querySelector(".tracklist"), bm);
     el.bookmarkList.appendChild(li);
   }
@@ -700,8 +787,12 @@ const TILE_MODE_LABELS = {
 /** Render the per-bookmark edit panel: a name field, then the tile-source
  *  picker (4 mode radios, plus the style-grid and upload sub-controls for
  *  the two config-bearing modes — always shown, so a stored pick survives
- *  switching away, but dimmed and disabled unless their mode is active). */
-function renderEditPanelInto(container, bm) {
+ *  switching away, but dimmed and disabled unless their mode is active),
+ *  and Remove at the bottom — set apart by a divider rather than blended in
+ *  as just another control, same idea as a "danger zone" at the bottom of a
+ *  native edit/detail screen. `li` is only needed to pass through to
+ *  onRemove(), which removes the row from the DOM directly. */
+function renderEditPanelInto(container, bm, li) {
   const mode = bm.tileMode || "spotify";
   const styleId = bm.tileStyleId || DEFAULT_TILE_STYLE;
   const styleActive = mode === "style";
@@ -742,6 +833,9 @@ function renderEditPanelInto(container, bm) {
       }
       <input type="file" accept="image/*" class="tile-upload-input" ${customActive ? "" : "disabled"} />
     </div>
+    <div class="edit-panel-danger">
+      <button class="remove-btn">Remove bookmark</button>
+    </div>
   `;
 
   wireEditNameInput(container.querySelector(".edit-name-input"), bm);
@@ -754,6 +848,7 @@ function renderEditPanelInto(container, bm) {
   container
     .querySelector(".tile-upload-input")
     ?.addEventListener("change", (e) => onTileUpload(bm, e.target.files?.[0]));
+  container.querySelector(".remove-btn").addEventListener("click", () => onRemove(bm, li));
 }
 
 /** Save on blur (Enter blurs too — no separate Save button, this panel isn't
@@ -898,23 +993,32 @@ async function onPlayTrack(bm, track) {
 // saved track's art for a bookmark that predates the trackImageUrl field.
 // Fixes a stuck "Unknown playlist" or a blank Song-art tile without having
 // to play the playlist and switch away.
+/** A merge-patch of fresher playlist name/cover + backfilled track art from
+ *  Spotify, or null if there's nothing new — force-bypasses the "already
+ *  has a name+cover, don't re-fetch" cache buildBookmarkFromSnapshot relies
+ *  on to keep steady-state polling cheap (getContextMeta's `force: true`).
+ *  Shared by the manual ↻ button and the quiet post-resume refresh below. */
+async function fetchBookmarkInfoPatch(bm) {
+  const patch = {};
+  if (bm.contextType === "playlist") {
+    const meta = await getContextMeta(bm.contextType, bm.contextId, { force: true });
+    if (meta.name && meta.name !== bm.contextName) patch.contextName = meta.name;
+    if (meta.imageUrl && meta.imageUrl !== bm.imageUrl) patch.imageUrl = meta.imageUrl;
+  }
+  if (bm.trackId && !bm.trackImageUrl) {
+    const art = await getTrackImage(bm.trackId);
+    if (art) patch.trackImageUrl = art;
+  }
+  return Object.keys(patch).length ? patch : null;
+}
+
 let refreshingBookmarkId = null;
 async function refreshBookmarkInfo(bm) {
   if (refreshingBookmarkId) return;
   refreshingBookmarkId = bm.id;
   try {
-    const patch = {};
-    if (bm.contextType === "playlist") {
-      const meta = await getContextMeta(bm.contextType, bm.contextId, { force: true });
-      if (meta.name && meta.name !== bm.contextName) patch.contextName = meta.name;
-      if (meta.imageUrl && meta.imageUrl !== bm.imageUrl) patch.imageUrl = meta.imageUrl;
-    }
-    if (bm.trackId && !bm.trackImageUrl) {
-      const art = await getTrackImage(bm.trackId);
-      if (art) patch.trackImageUrl = art;
-    }
-
-    if (Object.keys(patch).length === 0) {
+    const patch = await fetchBookmarkInfoPatch(bm);
+    if (!patch) {
       showToast(
         rateLimitedForMs() > 0
           ? "Spotify is rate-limiting the app — try again in a minute."
@@ -930,6 +1034,21 @@ async function refreshBookmarkInfo(bm) {
     showToast("Couldn't refresh that bookmark.");
   } finally {
     refreshingBookmarkId = null;
+  }
+}
+
+// "Reload the image whenever we resume" — quiet (no toast either way) since
+// Resume already gives its own feedback; skipped if a manual ↻ refresh is
+// already in flight for this same bookmark rather than racing it.
+async function refreshBookmarkInfoQuietly(bm) {
+  if (refreshingBookmarkId === bm.id) return;
+  try {
+    const patch = await fetchBookmarkInfoPatch(bm);
+    if (!patch) return;
+    await updateBookmarkFields(spotifyUserId, bm.id, patch);
+    await refreshBookmarkList();
+  } catch (err) {
+    console.error("Quiet post-resume refresh failed:", err);
   }
 }
 
@@ -971,28 +1090,128 @@ function onPlayPause() {
   onTransport(currentSnapshot?.isPlaying ? "pause" : "play");
 }
 
+/** Checks whether the bookmarked track is still in its playlist/album before
+ *  resuming there. Best-effort and fail-open: any lookup failure or an
+ *  inconclusive result (see getContextTrackIds' `complete`) just resumes as
+ *  bookmarked, same as before this existed — this only ever adds a
+ *  confirmed detection, never a false one, and never blocks Resume.
+ *
+ *  `unverifiable` (getContextTrackIds' `forbidden`, confirmed 403/404 — a
+ *  Spotify-generated algorithmic playlist, Daily Mix and the like, which a
+ *  dev-mode app can't read at all) is handled differently from a plain
+ *  inconclusive result: verified live (2026-09-03) that resuming one of
+ *  these via the Web API with *any* offset — the bookmarked track, or even
+ *  just position 0 — is unreliable and can disrupt whatever's currently
+ *  playing rather than degrade gracefully, so the caller skips attempting
+ *  resumePlayback() there entirely rather than trying it anyway. */
+async function resolveResumeTarget(bookmark) {
+  const asBookmarked = {
+    trackUri: bookmark.trackUri,
+    positionMs: bookmark.positionMs,
+    corrected: false,
+    unverifiable: false,
+  };
+  if (!bookmark.trackUri) return asBookmarked;
+  const trackId = bookmark.trackUri.split(":").pop();
+  const result = await getContextTrackIds(bookmark.contextType, bookmark.contextId).catch(() => null);
+  if (result?.forbidden) return { ...asBookmarked, unverifiable: true };
+  if (!result || !result.complete) return asBookmarked;
+  if (result.tracks.some((t) => t.id === trackId)) return asBookmarked;
+  const first = result.tracks[0];
+  if (!first) return asBookmarked; // list's empty too — nothing to fall back to
+  return { trackUri: null, positionMs: 0, corrected: true, unverifiable: false, firstTrack: first };
+}
+
+/** After a missing-track correction, keep the stored bookmark matching
+ *  reality (name, artists, uri, art) instead of the vanished track — "reload
+ *  the image" per IDEAS.md #15 — so the card doesn't keep showing a song
+ *  that's no longer there even though Resume now correctly starts
+ *  elsewhere. Best-effort: a failure here doesn't undo the resume itself. */
+async function correctBookmarkAfterMissingTrack(bookmark, firstTrack) {
+  try {
+    const trackImageUrl = await getTrackImage(firstTrack.id).catch(() => null);
+    await updateBookmarkFields(spotifyUserId, bookmark.id, {
+      trackId: firstTrack.id,
+      trackUri: firstTrack.uri || null,
+      trackName: firstTrack.name || "Unknown track",
+      artists: firstTrack.artists || "",
+      trackImageUrl,
+      positionMs: 0,
+    });
+  } catch (err) {
+    console.error("Couldn't correct bookmark after a missing track:", err);
+  }
+}
+
+/** Shared tail for every onResume() path that actually got Spotify playing
+ *  something: closes the device picker if it was open, bumps the bookmark
+ *  to the top of the list, and schedules a reconciling poll. */
+async function finishResumeSuccess(bookmark) {
+  hideDevicePicker();
+  // Resuming counts as "using" the bookmark — bump it to the top of the
+  // list immediately (local mark), then persist lastUsedAt.
+  markUsedNow(bookmark.id);
+  await refreshBookmarkList();
+  try {
+    await touchBookmark(spotifyUserId, bookmark.id);
+  } catch (err) {
+    console.error("Failed to bump lastUsedAt:", err);
+  }
+  // Give Spotify a moment to update state, then refresh the display.
+  setTimeout(pollOnce, 1500);
+}
+
 async function onResume(bookmark, deviceId) {
   clearTrackEndTimer(); // jumping to a bookmarked spot invalidates it too
+  // Fire-and-forget, not awaited: Resume shouldn't wait on it, and it has
+  // its own error handling/toast-free failure path.
+  refreshBookmarkInfoQuietly(bookmark);
   try {
+    // Inside the try, not before it: resolveResumeTarget() is already
+    // internally guarded (getContextTrackIds' own error handling, plus its
+    // own .catch()), but this way any unforeseen failure here still falls
+    // through to the ordinary "Couldn't resume playback." handling below
+    // instead of an unhandled rejection that silently does nothing.
+    const target = await resolveResumeTarget(bookmark);
+    if (target.unverifiable) {
+      // Try the one request shape research says is most likely to actually
+      // work for this content class — no offset at all, just context_uri
+      // (see resumeContextBare's doc comment / IDEAS.md #15). Not
+      // guaranteed: still depends on the active device resolving the
+      // context itself, so this can still fail the same way a normal
+      // resume would.
+      try {
+        await resumeContextBare({ contextUri: bookmark.contextUri, deviceId });
+        showToast(`“${bookmarkName(bookmark)}” changed — resuming at the beginning.`);
+        await finishResumeSuccess(bookmark);
+        return;
+      } catch (err) {
+        console.error("Bare-context resume failed, falling back to Open in Spotify:", err);
+      }
+      // Best-effort auto-jump: reliable in Chrome/Firefox (a "was this
+      // triggered by a click" grace period that survives an async gap),
+      // but Safari specifically revokes that grace the moment code crosses
+      // a real network fetch — and there have now been two, above — so
+      // this can silently no-op there. That's fine: the link in
+      // showUnverifiableResumeTarget() below is the guaranteed fallback,
+      // always rendered regardless of whether this worked.
+      window.open(spotifyWebUrl(bookmark.contextUri), "_blank", "noopener");
+      showUnverifiableResumeTarget(bookmark);
+      return;
+    }
     await resumePlayback({
       contextUri: bookmark.contextUri,
-      trackUri: bookmark.trackUri,
-      positionMs: bookmark.positionMs,
+      trackUri: target.trackUri,
+      positionMs: target.positionMs,
       deviceId,
     });
-    hideDevicePicker();
-    showToast(`Resumed ${bookmarkName(bookmark)} at ${bookmark.trackName}`);
-    // Resuming counts as "using" the bookmark — bump it to the top of the list
-    // immediately (local mark), then persist lastUsedAt.
-    markUsedNow(bookmark.id);
-    await refreshBookmarkList();
-    try {
-      await touchBookmark(spotifyUserId, bookmark.id);
-    } catch (err) {
-      console.error("Failed to bump lastUsedAt:", err);
+    if (target.corrected) {
+      showToast(`“${bookmark.trackName}” isn't in ${bookmarkName(bookmark)} any more — started from the beginning.`);
+      await correctBookmarkAfterMissingTrack(bookmark, target.firstTrack);
+    } else {
+      showToast(`Resumed ${bookmarkName(bookmark)} at ${bookmark.trackName}`);
     }
-    // Give Spotify a moment to update state, then refresh the display.
-    setTimeout(pollOnce, 1500);
+    await finishResumeSuccess(bookmark);
   } catch (err) {
     console.error(err);
     // 404 from the play endpoint = no active device.
@@ -1009,6 +1228,16 @@ async function onResume(bookmark, deviceId) {
   }
 }
 
+function openInSpotifyLink(bookmark) {
+  const link = document.createElement("a");
+  link.className = "device-btn";
+  link.href = spotifyWebUrl(bookmark.contextUri);
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.textContent = `Open ${bookmarkName(bookmark)} in Spotify`;
+  return link;
+}
+
 function showResumeTargets(bookmark, devices) {
   el.deviceList.innerHTML = "";
   if (devices.length) {
@@ -1023,14 +1252,22 @@ function showResumeTargets(bookmark, devices) {
   } else {
     el.devicePickerMsg.textContent =
       "No Spotify device is available. Open Spotify, then tap Resume again.";
-    const link = document.createElement("a");
-    link.className = "device-btn";
-    link.href = spotifyWebUrl(bookmark.contextUri);
-    link.target = "_blank";
-    link.rel = "noopener";
-    link.textContent = `Open ${bookmarkName(bookmark)} in Spotify`;
-    el.deviceList.appendChild(wrapLi(link));
+    el.deviceList.appendChild(wrapLi(openInSpotifyLink(bookmark)));
   }
+  el.devicePicker.hidden = false;
+  el.devicePicker.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+// A Spotify-generated algorithmic playlist (Daily Mix and the like) this app
+// confirmed it can't read (IDEAS.md #15 / getContextTrackIds' `forbidden`) —
+// resuming it via the Web API is unreliable enough to disrupt current
+// playback (verified live), so skip that entirely and hand off to Spotify
+// itself instead, the same "Open in Spotify" pattern as the no-device case.
+function showUnverifiableResumeTarget(bookmark) {
+  el.deviceList.innerHTML = "";
+  el.devicePickerMsg.textContent =
+    "Spotify won't let this app check or control this playlist directly (an auto-generated mix, most likely) — open it in Spotify to resume.";
+  el.deviceList.appendChild(wrapLi(openInSpotifyLink(bookmark)));
   el.devicePicker.hidden = false;
   el.devicePicker.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
@@ -1169,6 +1406,7 @@ function commitRemoval() {
 function onRemove(bookmark, li) {
   commitRemoval(); // flush any earlier pending removal first
   if (expandedId === bookmark.id) expandedId = null;
+  if (editPanelId === bookmark.id) editPanelId = null;
   li.remove();
   const timer = setTimeout(commitRemoval, 5000);
   pendingRemoval = { bookmark, timer };
@@ -1193,7 +1431,7 @@ async function onManualBookmark() {
     const bookmark = await buildBookmarkFromSnapshot(currentSnapshot);
     await saveBookmark(spotifyUserId, bookmark);
     markUsedNow(contextKey(bookmark.contextType, bookmark.contextId));
-    setBookmarkStatus(`Saved: ${bookmark.trackName}`, "success");
+    flashBookmarkStatus(`Saved: ${bookmark.trackName}`, currentPlaybackStatusKey());
     await refreshBookmarkList();
   } catch (err) {
     console.error(err);
@@ -1210,7 +1448,10 @@ function setImportStatus(message, kind) {
   el.importStatus.className = "status" + (kind ? ` ${kind}` : "");
 }
 
-async function onExport() {
+/** The export payload — `{ app, version, exportedAt, bookmarks[] }` as
+ *  pretty-printed JSON — shared by the clipboard export and the file
+ *  download below. */
+async function buildExportJson() {
   const all = await listBookmarks(spotifyUserId);
   const payload = {
     app: "playlist-resume",
@@ -1220,16 +1461,50 @@ async function onExport() {
       Object.fromEntries(EXPORT_FIELDS.map((f) => [f, b[f] ?? (f === "positionMs" ? 0 : null)])),
     ),
   };
-  const json = JSON.stringify(payload, null, 2);
+  return { json: JSON.stringify(payload, null, 2), count: payload.bookmarks.length };
+}
+
+async function onExport() {
+  const { json, count } = await buildExportJson();
   el.exportText.value = json;
   el.exportText.hidden = false;
   try {
     await navigator.clipboard.writeText(json);
-    showToast(`Copied ${payload.bookmarks.length} bookmark${payload.bookmarks.length === 1 ? "" : "s"}`);
+    showToast(`Copied ${count} bookmark${count === 1 ? "" : "s"}`);
   } catch {
     el.exportText.focus();
     el.exportText.select();
     showToast("Select all and copy the text below");
+  }
+}
+
+async function onExportDownload() {
+  const { json, count } = await buildExportJson();
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `myspot-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  showToast(`Downloaded ${count} bookmark${count === 1 ? "" : "s"}`);
+}
+
+/** File-picker companion to pasting into the import textarea — just reads
+ *  the chosen file's text into the same box; the existing Import button and
+ *  its validation handle the rest unchanged. */
+async function onImportFileChosen(file) {
+  if (!file) return;
+  try {
+    el.importText.value = await file.text();
+    setImportStatus(`Loaded ${file.name} — press Import to apply it.`);
+  } catch (err) {
+    console.error("Couldn't read that file:", err);
+    setImportStatus("Couldn't read that file.", "error");
+  } finally {
+    el.importFileInput.value = ""; // so picking the same file again still fires 'change'
   }
 }
 
@@ -1318,6 +1593,9 @@ async function runPoll() {
       const bookmark = await buildBookmarkFromSnapshot(lastContextSnapshot);
       await saveBookmark(spotifyUserId, bookmark);
       markUsedNow(previousKey);
+      // No key — this describes wherever we just left, not what's about to
+      // render as "now playing", so it can't be validated against that.
+      flashBookmarkStatus(`Auto-saved: ${bookmark.trackName}`);
       await refreshBookmarkList();
     } catch (err) {
       console.error("Auto-bookmark failed:", err);
@@ -1339,6 +1617,9 @@ async function runPoll() {
       const bookmark = await buildBookmarkFromSnapshot(snapshot);
       await saveBookmark(spotifyUserId, bookmark);
       markUsedNow(newKey);
+      // This one does describe what's about to render as "now playing" —
+      // give it a key so it's invalidated immediately if that's wrong too.
+      flashBookmarkStatus(`Auto-saved: ${bookmark.trackName}`, `${newKey}::${newTrackId}`);
       await refreshBookmarkList();
     } catch (err) {
       console.error("Follow-bookmark update failed:", err);
@@ -1389,12 +1670,17 @@ async function resolveContextName(snapshot) {
   }
 }
 
+// Returns the initial poll's promise so a caller that needs currentSnapshot
+// populated (the "bookmark now" shortcut) can await it — pollOnce() itself
+// no-ops for anyone else who calls it while this one is still in flight
+// (the `polling` guard), so that's the only way to actually wait on it.
 function startPolling() {
   stopPolling();
   // Don't burn API calls polling a hidden tab; visibilitychange resumes it.
   if (document.hidden && !KEEP_POLLING_WHEN_HIDDEN) return;
-  pollOnce();
+  const initial = pollOnce();
   pollHandle = setInterval(pollOnce, settings.pollIntervalMs);
+  return initial;
 }
 
 function stopPolling() {
@@ -1464,10 +1750,16 @@ async function enterApp() {
   el.userGreeting.textContent = `Hi, ${me.display_name || me.id}`;
 
   await refreshBookmarkList();
-  startPolling();
+  const initialPoll = startPolling();
   startProgressTicker();
 
-  if (consumePendingShortcutAction() === "resume-last") await resumeLastBookmark();
+  const action = consumePendingShortcutAction();
+  if (action === "resume-last") {
+    await resumeLastBookmark();
+  } else if (action === "bookmark-now") {
+    await initialPoll; // unlike resume-last, this needs currentSnapshot populated first
+    await bookmarkNowShortcut();
+  }
 }
 
 async function resumeLastBookmark() {
@@ -1482,6 +1774,14 @@ async function resumeLastBookmark() {
     console.error("Resume-last shortcut failed:", err);
     showToast("Couldn't resume your last bookmark.");
   }
+}
+
+async function bookmarkNowShortcut() {
+  if (!bookmarkableContext(currentSnapshot)) {
+    showToast("Nothing playing right now to bookmark.");
+    return;
+  }
+  await onManualBookmark();
 }
 
 function enterLoggedOut() {
@@ -1577,7 +1877,9 @@ async function init() {
   el.bookmarkFilter.addEventListener("input", renderBookmarks);
   el.bookmarkFilter.addEventListener("search", renderBookmarks); // "x" clear
   el.exportBtn.addEventListener("click", onExport);
+  el.exportDownloadBtn.addEventListener("click", onExportDownload);
   el.importBtn.addEventListener("click", onImport);
+  el.importFileInput.addEventListener("change", (e) => onImportFileChosen(e.target.files?.[0]));
   el.deviceCancel.addEventListener("click", hideDevicePicker);
   el.prevBtn.addEventListener("click", () => onTransport("previous"));
   el.nextBtn.addEventListener("click", () => onTransport("next"));

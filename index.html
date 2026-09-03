@@ -134,11 +134,18 @@
         <details id="backup-section">
           <summary>Backup &amp; restore</summary>
           <div class="backup-body">
-            <button id="export-btn" class="secondary">Export &amp; copy</button>
+            <div class="row">
+              <button id="export-btn" class="secondary">Export &amp; copy</button>
+              <button id="export-download-btn" class="secondary">Download file</button>
+            </div>
             <textarea id="export-text" class="backup-text" rows="5" readonly hidden aria-label="Exported bookmarks JSON"></textarea>
-            <p class="backup-hint">Paste a previous export below to restore it. A bookmark for a playlist/album you already have is overwritten.</p>
+            <p class="backup-hint">Paste a previous export below, or choose a backup file, to restore it. A bookmark for a playlist/album you already have is overwritten.</p>
             <textarea id="import-text" class="backup-text" rows="5" placeholder="Paste exported JSON here…" aria-label="Bookmarks JSON to import"></textarea>
-            <button id="import-btn" class="secondary">Import</button>
+            <div class="row">
+              <button id="import-btn" class="secondary">Import</button>
+              <label for="import-file-input" class="file-label">Choose file…</label>
+              <input type="file" id="import-file-input" accept="application/json,.json" hidden />
+            </div>
             <p id="import-status" class="status"></p>
           </div>
         </details>

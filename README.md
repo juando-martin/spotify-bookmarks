@@ -21,8 +21,12 @@ moving Firebase projects later is a one-file edit — no version bump.
   **"Bookmark this album"** and saves the current track's album at that spot.
 - **Auto-bookmark on switch** — leaving a playlist/album saves where you
   were, automatically (toggle in Settings).
-- **Now playing card** — album art, track / album / playlist name, and
-  **⏮ / ⏯ / ⏭** transport controls for the active device.
+- **Now playing card** — album art (tap it to open the track in Spotify),
+  track / album / playlist name, and **⏮ / ⏯ / ⏭** transport controls for
+  the active device. **⏮** restarts the current track once you're more than
+  5s into it, and only jumps to the previous track within that first 5s —
+  like most music players. Track changes show up within about a second of
+  the song actually ending, not tied to your poll interval.
 - **Bookmark list** — cover-art thumbnail, saved position ("resumes at
   2:34"), last-used relative time, ordered most-recently-used first, with a
   filter box (matches name / track / artist).
@@ -39,14 +43,19 @@ moving Firebase projects later is a one-file edit — no version bump.
 - **List tools** (off by default — see the `listtools` flag below): a
   **Find a playlist or album** search box, and **Pick a track** on any
   bookmark to play a different song from its playlist/album.
-- **✎ on any bookmark** opens a panel to rename it and to pick its tile
-  image (see *Playlist tiles* above). Renaming is needed for Spotify's
-  editorial "Mix" playlists, whose real name the Web API won't hand back;
-  your name then shows on the Now playing card too.
+- **✎ on any bookmark** opens a panel to rename it, pick its tile image
+  (see *Playlist tiles* above), and **Remove** it — set apart at the bottom
+  of the panel, with a 5-second **Undo** grace period. Renaming is needed
+  for Spotify's editorial "Mix" playlists, whose real name the Web API
+  won't hand back; your name then shows on the Now playing card too.
 - **Resume device handling** — one idle device just plays; several show a
   picker; none shows an "Open in Spotify" deep link.
-- **Undo** on Remove (5-second grace period).
-- **"Resume last played"** PWA shortcut (long-press the home-screen icon).
+- **Resume checks the bookmarked track is still there** before jumping to
+  it — if it's been removed from the playlist/album since you bookmarked
+  it, Resume starts from the top of the list instead, tells you, and
+  refreshes the bookmark's stored track name/art to match.
+- **"Resume last played"** and **"Bookmark now"** PWA shortcuts
+  (long-press the home-screen icon).
 - **Settings** — auto-bookmark toggle and poll interval (3–60 s), per
   device.
 - **Backup & restore** — export all bookmarks to JSON (copied to the
@@ -228,8 +237,25 @@ Redirect URI matches the real deployed URL).
   device is active — same "needs an active device" caveat as Resume.
   Play/pause flips optimistically; the seek bar advances once a second
   between polls and resyncs on each poll; dragging it seeks the device.
-- **Remove** deletes after a 5-second grace period with an **Undo** in the
-  toast; the delete only actually hits Firestore once that window passes.
+  **⏮** restarts the track (`seek(0)`, instant — no poll needed) once
+  you're more than 5s in; within the first 5s it calls Spotify's real
+  "previous track" instead.
+- The Now playing tile's art is a **link** (green ↗ badge), same as a
+  bookmark's — but it opens the *track* (`open.spotify.com/track/…`), not
+  the playlist/album, since that's specifically what's playing right now.
+- A track change shows up promptly even on a slow poll interval: once
+  within two poll intervals of a track's expected end, the app arms a
+  one-off catch-up poll for ~1s after the boundary, and also pre-fetches
+  what Spotify's live queue says is next so the card can swap to it right
+  at the boundary rather than waiting on that poll — driven by the local
+  progress timer, not a network round trip. The catch-up poll then confirms
+  it a moment later (or corrects the display if the prediction didn't
+  hold — rare, and self-correcting). Skipped under repeat-track, since the
+  queue's "next" item isn't the track that's actually about to repeat.
+- **Remove** lives at the bottom of the ✎ panel now (see below), set apart
+  from the rest of it. It deletes after a 5-second grace period with an
+  **Undo** in the toast; the delete only actually hits Firestore once that
+  window passes.
 - **Backup & restore** lives at the bottom of the bookmarks card. *Export &
   copy* puts `{ app, version, exportedAt, bookmarks[] }` on the clipboard
   (and in a textarea as a fallback). *Import* accepts that, or a bare array;
@@ -280,27 +306,56 @@ Redirect URI matches the real deployed URL).
   back in** once to re-consent, or playlist names stay blank ("In a
   playlist").
 - Spotify-owned **editorial / algorithmic** playlists (Today's Top Hits,
-  RapCaviar, mood/genre mixes, …) can't be read via the Web API for
-  Development-Mode apps (it 404s). When that happens the app falls back to
-  **`open.spotify.com/oembed`** — the same public endpoint blog embeds use.
-  It's unauthenticated, CORS-open, and on a separate rate limit from
-  `api.spotify.com`, and it returns the playlist's real **name and cover**,
-  so most editorial playlists now resolve normally with no action from you.
-  The fallback lives in `getContextMeta()` (`js/spotifyApi.js`); the cover
-  URL it hands back is an `i.scdn.co` link, stored in `imageUrl` exactly
-  like a Web-API cover. What oEmbed *can't* see is a playlist that isn't
-  public on `open.spotify.com` — a truly private playlist, or a personalized
-  mix like **Discover Weekly / Daily Mix**. Those still show "Unknown
-  playlist" + a generated tile; rename with ✎ to give them a name (it
-  sticks — the playlist ID is stable even as the contents rotate).
-- Every bookmark has a **✎** control opening a panel with a name field and
-  the tile picker (see *Playlist tiles* above). The custom name is stored
-  per bookmark (`customName`), shown instead of Spotify's (clear the field
-  to fall back), and survives re-saves and auto-bookmarks. While that
-  context is playing, the Now playing card shows the custom name too. This
-  is the fix for the editorial-playlist case above: the playlist ID is
-  stable (Discover Weekly keeps the same URI forever, only its contents
-  rotate), so a name you set once sticks.
+  RapCaviar, mood/genre mixes, Daily Mix, Discover Weekly, …) can't be fully
+  read via the Web API for Development-Mode apps — most 404, but Spotify's
+  *personalized* algorithmic ones (Daily Mix and the like, `37i9dQZF1E...`
+  playlist IDs) specifically **403** instead, a deliberate block on
+  third-party apps reading that content's structure, not a permissions gap
+  extending your app's quota would fix. Either way the app falls back to
+  **`open.spotify.com/oembed`** — the same public endpoint blog embeds
+  use — for the name and cover. It's unauthenticated, CORS-open, and on a
+  separate rate limit from `api.spotify.com`, and it returns the playlist's
+  real **name and cover**, so most editorial and algorithmic playlists
+  resolve normally with no action from you. The fallback lives in
+  `getContextMeta()` (`js/spotifyApi.js`); the cover URL it hands back is an
+  `i.scdn.co` link, stored in `imageUrl` exactly like a Web-API cover. What
+  oEmbed *can't* see is a playlist that isn't public on `open.spotify.com`
+  at all — a truly private playlist. Those still show "Unknown playlist" +
+  a generated tile; rename with ✎ to give them a name (it sticks — the
+  playlist ID is stable even as the contents rotate).
+- The 403 above is about **reading structure**, and a separate, narrower
+  restriction covers **resuming to a specific spot**: for a Daily-Mix-class
+  playlist, Spotify's Web API won't reliably honor *any* offset (a specific
+  track, or even just "start at position 0") — confirmed live, it can
+  actually interrupt whatever's currently playing rather than fail cleanly.
+  Resume detects this (the same tracklist check that powers the
+  missing-track handling above) and, for that narrow content class only,
+  skips asking for a specific spot: it tries starting the bare playlist
+  with no offset at all (the shape most likely to work, though still not
+  guaranteed — it depends on the active device resolving it), and if even
+  that fails, hands off to the "Open in Spotify" link instead of risking
+  another interrupted attempt — trying to open it there automatically
+  first (works in Chrome/Firefox; Safari's popup blocker usually still
+  needs the one manual tap the first time you hit a given Daily Mix, not
+  on repeat visits). Either way you land back in Spotify playing that mix;
+  you just may not land on the exact remembered track for this content
+  type specifically.
+- Every bookmark has a **✎** control opening a panel with a name field, the
+  tile picker (see *Playlist tiles* above), and **Remove** at the bottom,
+  set apart by a divider rather than blended in as another field — the same
+  idea as a "danger zone" at the bottom of a native edit screen. The custom
+  name is stored per bookmark (`customName`), shown instead of Spotify's
+  (clear the field to fall back), and survives re-saves and auto-bookmarks.
+  While that context is playing, the Now playing card shows the custom name
+  too. This is the fix for the editorial-playlist case above: the playlist
+  ID is stable (Discover Weekly keeps the same URI forever, only its
+  contents rotate), so a name you set once sticks.
+- **Resume force-refreshes** a bookmark's playlist name/cover from Spotify
+  every time (bypassing the "made only when a bookmark is first saved"
+  cache noted above, which keeps steady-state polling cheap) — so a cover
+  that was missing or stale when you first bookmarked something gets a
+  chance to fix itself just by resuming it, without needing to tap ↻
+  manually.
 - Next to ✎ is a **↻ refresh** control — re-asks Spotify for the playlist's
   real name and cover and, for an old bookmark, backfills the saved track's
   art via `GET /tracks/{id}`. It bypasses the session cache, the failure
@@ -367,13 +422,17 @@ Redirect URI matches the real deployed URL).
   switches made in the meantime aren't auto-captured. Manual bookmarking and
   Resume are unaffected. The always-on setup below passes `?background` to
   opt out of this pause. See "Always-on auto-bookmark" if you want 24/7.
-- The PWA exposes a **"Resume last played"** shortcut (long-press the
-  home-screen icon on Android, right-click the taskbar icon on desktop) that
-  opens the app and immediately resumes your most-recently-used bookmark —
-  it just loads `./?action=resume-last`. **Not available on iPhone** — iOS
+- The PWA exposes two shortcuts (long-press the home-screen icon on
+  Android, right-click the taskbar icon on desktop): **"Resume last
+  played"** (`./?action=resume-last`) resumes your most-recently-used
+  bookmark immediately. **"Bookmark now"** (`./?action=bookmark-now`)
+  bookmarks whatever's currently playing — unlike the resume shortcut, this
+  one needs live playback data, so it waits for the app's first poll to
+  land before acting (a brief "checking what's playing…" beat) and toasts
+  if nothing bookmarkable is playing. **Not available on iPhone** — iOS
   Safari doesn't support the manifest `shortcuts` member at all, so there's
   no long-press menu on the home-screen icon there. The app itself is
-  unaffected; just open it normally and tap Resume.
+  unaffected; just open it normally and use the buttons directly.
 - The OAuth login redirect (`js/auth.js`) stashes the PKCE `code_verifier`
   and `state` in `localStorage`, not `sessionStorage`, specifically for
   installed iOS home-screen PWAs: a cross-origin round trip to
@@ -451,7 +510,7 @@ js/config.js              Static config: OAuth scopes, redirect URI, poll-interv
 js/runtimeConfig.js       Loads + validates config.json at startup (unit-tested)
 js/pkce.js                PKCE code_verifier/code_challenge helpers
 js/auth.js                Spotify OAuth login/redirect/token refresh (shared single-flight)
-js/spotifyApi.js          Spotify Web API wrapper (playback, resume, transport, devices, meta + open.spotify.com/oembed fallback)
+js/spotifyApi.js          Spotify Web API wrapper (playback, resume, transport, devices, queue, track-membership check, meta + open.spotify.com/oembed fallback)
 js/rateLimit.js           The 429 back-off state machine (persisted deadline, escalation, cross-tab) — unit-tested
 js/format.js              Pure helpers: formatting, playback-state normalization, oEmbed parse, tile monogram + hash, 429 wait math (unit-tested)
 js/tiles.js               Generated placeholder cover tiles — canvas → data URL, six styles
@@ -482,8 +541,11 @@ and `CACHE_NAME` in `sw.js` in step — the update banner and cache-busting
 depend on it):
 
 ```bash
-npm run bump          # current + 1
-npm run bump -- 30    # set explicitly
+npm run bump          # current + 1 (or next beta build, if mid-beta)
+npm run bump -- beta  # start/continue a beta series (N -> N-b1 -> N-b2 -> …)
+                       # without touching the release number, for iterating
+                       # on a fix before it's ready to call done
+npm run bump -- 30    # set an exact release, explicitly (drops any -bN)
 ```
 
 To try it locally, serve the folder over HTTP (module scripts need it) and

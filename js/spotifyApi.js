@@ -7,9 +7,13 @@ import { createRateLimiter } from "./rateLimit.js";
 
 const API_BASE = "https://api.spotify.com/v1";
 const contextMetaCache = new Map();
-// Contexts that returned 404 this session (editorial playlists a dev-mode
-// app can't read) — don't re-ask them on every poll tick.
+// Contexts confirmed unreadable this session (editorial/algorithmic
+// playlists a dev-mode app can't read) — don't re-ask them on every poll
+// tick. Spotify uses both 404 and 403 for this depending on the specific
+// content class (verified live: a Daily Mix, 37i9dQZF1E...-prefixed,
+// 403s on /playlists/{id}/tracks — see IDEAS.md #15) — treat both alike.
 const unreadableContexts = new Set();
+const isUnreadableStatus = (status) => status === 404 || status === 403;
 // cacheKey -> timestamp to retry after, for non-404 getContextMeta failures.
 const contextMetaCooldown = new Map();
 
@@ -77,6 +81,33 @@ export async function getPlaybackState() {
 }
 
 /**
+ * The next track Spotify will actually play — from the live playback
+ * queue, which already accounts for context (playlist/album order),
+ * shuffle, and any manually-queued tracks, so it's not something this app
+ * could reconstruct itself from a tracklist. Used for the predictive
+ * track-swap (IDEAS.md #14). A separate call from getPlaybackState() — call
+ * it sparingly (once per track, when the near-end window is armed), not on
+ * every poll tick. Returns `{ id, uri, name, imageUrl } | null`.
+ */
+export async function getQueue() {
+  const res = await apiFetch("/me/player/queue");
+  if (!res.ok) {
+    console.error(`getQueue() -> ${res.status}`);
+    return null;
+  }
+  const data = await res.json();
+  const next = (data.queue || [])[0];
+  if (!next || !next.id) return null;
+  return {
+    id: next.id,
+    uri: next.uri,
+    name: next.name || "",
+    artists: (next.artists || []).map((a) => a.name).join(", "),
+    imageUrl: smallestImageUrl(next.album?.images || next.images),
+  };
+}
+
+/**
  * Fetch `{ name, imageUrl, noCover }` from `open.spotify.com/oembed` — the
  * public web-player metadata, which still covers the editorial / algorithmic
  * playlists the Web API locked out for Development-Mode apps. Unauthenticated,
@@ -106,13 +137,13 @@ async function oembedMeta(type, id) {
  * art), null when there isn't one or it can't be read.
  *
  * `noCover` is true only when there's *confirmed* to be no usable cover —
- * a 200 with no images, or a 404 with no oEmbed thumbnail either. It stays
- * false/undefined when the lookup simply didn't complete (transient error,
- * on cooldown), so the caller can tell "there will never be a cover, fall
- * back for good" from "try again later".
+ * a 200 with no images, or a 404/403 with no oEmbed thumbnail either. It
+ * stays false/undefined when the lookup simply didn't complete (transient
+ * error, on cooldown), so the caller can tell "there will never be a
+ * cover, fall back for good" from "try again later".
  *
- * When the Web API 404s (an editorial playlist), it falls back to
- * `open.spotify.com/oembed` for the name and cover.
+ * When the Web API 404s or 403s (an editorial/algorithmic playlist), it
+ * falls back to `open.spotify.com/oembed` for the name and cover.
  *
  * `force` (the manual "refresh info" action) bypasses the session cache, the
  * failure cooldown, *and* a prior "unreadable" mark — a deliberate retry of
@@ -136,9 +167,11 @@ export async function getContextMeta(type, id, { force = false } = {}) {
   const path =
     type === "playlist" ? `/playlists/${id}?fields=name,images` : `/albums/${id}`;
   const res = await apiFetch(path);
-  if (res.status === 404) {
-    // The Web API won't serve this to a dev-mode app. Its public name +
-    // cover are still on open.spotify.com — try oEmbed before giving up.
+  if (isUnreadableStatus(res.status)) {
+    // The Web API won't serve this to a dev-mode app (404 for most editorial
+    // playlists, 403 for Spotify's algorithmic ones — Daily Mix and the
+    // like, verified live). Its public name + cover are still on
+    // open.spotify.com — try oEmbed before giving up.
     const meta = await oembedMeta(type, id);
     if (meta) {
       contextMetaCache.set(cacheKey, meta);
@@ -223,7 +256,8 @@ export async function searchContexts(query) {
  * The tracks of a playlist or album, as `{ uri, name, artists }`. Capped at
  * the first 100 (playlist) / 50 (album). Returns:
  *   Track[]              on success (possibly empty)
- *   { forbidden: true }  on 404 — an editorial playlist this app can't read
+ *   { forbidden: true }  on 404/403 — an editorial/algorithmic playlist this
+ *                        app can't read
  *   null                 on any other error (transient — worth retrying)
  */
 export async function getContextTracks(type, id) {
@@ -234,7 +268,7 @@ export async function getContextTracks(type, id) {
   const res = await apiFetch(path);
   if (!res.ok) {
     console.error(`getContextTracks(${type}, ${id}) -> ${res.status}`);
-    return res.status === 404 ? { forbidden: true } : null;
+    return isUnreadableStatus(res.status) ? { forbidden: true } : null;
   }
   const data = await res.json();
   const raw =
@@ -246,6 +280,50 @@ export async function getContextTracks(type, id) {
       name: t.name || "",
       artists: (t.artists || []).map((a) => a.name).join(", "),
     }));
+}
+
+/**
+ * A lightweight listing of a playlist/album's tracks — just enough to check
+ * whether a specific track is still a member (id/uri/name/artists, no art,
+ * duration, or other per-track metadata) — cheap enough to run on every
+ * Resume tap, unlike getContextTracks() above (used by the opt-in "Pick a
+ * track" list, and part of why that stays hidden by default — see
+ * IDEAS.md). Capped at the same first page (100/playlist, 50/album); no
+ * further pagination, so a large playlist/album can come back incomplete.
+ * Returns:
+ *   { tracks: Track[], complete: boolean }  on success — `complete` is
+ *     false when there's more beyond the cap (`next` was non-null), so
+ *     "not in `tracks`" is inconclusive in that case, not a confirmed
+ *     absence.
+ *   { forbidden: true }  on 404/403 — an editorial/algorithmic playlist this
+ *                        app can't read.
+ *   null                  on any other error (transient — treat as unknown).
+ */
+export async function getContextTrackIds(type, id) {
+  // A context already known unreadable via the Web API (getContextMeta's
+  // negative cache — an editorial/algorithmic playlist a dev-mode app can't
+  // read) will fail here too; skip the guaranteed-wasted call.
+  if (unreadableContexts.has(`${type}:${id}`)) return { forbidden: true };
+  const path =
+    type === "playlist"
+      ? `/playlists/${id}/tracks?limit=100&fields=items(track(id,uri,name,artists(name))),next`
+      : `/albums/${id}/tracks?limit=50&fields=items(id,uri,name,artists(name)),next`;
+  const res = await apiFetch(path);
+  if (!res.ok) {
+    console.error(`getContextTrackIds(${type}, ${id}) -> ${res.status}`);
+    return isUnreadableStatus(res.status) ? { forbidden: true } : null;
+  }
+  const data = await res.json();
+  const raw = type === "playlist" ? (data.items || []).map((i) => i && i.track) : data.items || [];
+  const tracks = raw
+    .filter((t) => t && t.id)
+    .map((t) => ({
+      id: t.id,
+      uri: t.uri,
+      name: t.name || "",
+      artists: (t.artists || []).map((a) => a.name).join(", "),
+    }));
+  return { tracks, complete: !data.next };
 }
 
 /** Spotify Connect devices this account can see (active or idle). */
@@ -278,6 +356,32 @@ export async function resumePlayback({ contextUri, trackUri, positionMs, deviceI
   if (!res.ok && res.status !== 204) {
     const text = await res.text().catch(() => "");
     throw new Error(`Failed to resume playback: ${res.status} ${text}`);
+  }
+}
+
+/**
+ * Start a context with no offset at all — just `context_uri`, no `offset`
+ * or `position_ms` key in the body (resumePlayback() above always sends
+ * one, even if it's just `{position: 0}`). Reserved for a confirmed-
+ * unreadable, algorithmic context (Daily Mix and the like — see
+ * IDEAS.md #15): live research there says *any* offset is unreliable via
+ * the Web API for this content class, and omitting it entirely is the
+ * shape most likely to actually work — though "most likely," not
+ * guaranteed, since it still depends on the active device resolving the
+ * context itself.
+ */
+export async function resumeContextBare({ contextUri, deviceId }) {
+  const path = deviceId
+    ? `/me/player/play?device_id=${encodeURIComponent(deviceId)}`
+    : "/me/player/play";
+  const res = await apiFetch(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ context_uri: contextUri }),
+  });
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to resume context bare: ${res.status} ${text}`);
   }
 }
 

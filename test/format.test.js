@@ -180,6 +180,7 @@ test("normalizePlaybackState maps a track playing inside a playlist", () => {
   assert.deepEqual(snap, {
     isPlaying: true,
     progressMs: 154_000,
+    repeatState: "off",
     track: {
       id: "t1",
       uri: "spotify:track:t1",
@@ -253,6 +254,15 @@ test("normalizePlaybackState leaves context null for non-resumable contexts", ()
     });
     assert.equal(snap.context, null, `type=${type}`);
   }
+});
+
+test("normalizePlaybackState carries repeat_state, defaulting to off", () => {
+  const withRepeat = normalizePlaybackState({
+    is_playing: true, progress_ms: 0, item: trackItem, context: null, repeat_state: "track",
+  });
+  assert.equal(withRepeat.repeatState, "track");
+  const withoutRepeat = normalizePlaybackState({ is_playing: true, progress_ms: 0, item: trackItem, context: null });
+  assert.equal(withoutRepeat.repeatState, "off");
 });
 
 test("normalizePlaybackState falls back to item.images for podcast episodes", () => {

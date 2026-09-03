@@ -158,6 +158,11 @@ export function normalizePlaybackState(data) {
   return {
     isPlaying: data.is_playing,
     progressMs: data.progress_ms,
+    // "off" | "context" | "track" — needed to skip the predictive track-swap
+    // (IDEAS.md #14) when repeat-track is on, since the queue endpoint's
+    // next item is the next *distinct* track even though the same one is
+    // about to repeat.
+    repeatState: data.repeat_state ?? "off",
     track: {
       id: data.item.id,
       uri: data.item.uri,

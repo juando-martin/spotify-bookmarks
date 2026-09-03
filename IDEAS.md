@@ -291,6 +291,132 @@ Original backlog #1–#12, plus everything added along the way:
   short reconciliation poll that re-arms against the corrected position —
   a stale timer firing in that short gap is harmless anyway (just one
   redundant poll), the explicit clear just avoids the noise.
+- **Now Playing polish, missing-track handling on Resume, and a predictive
+  track-swap (v63)** — a batch of seven items, discussed and agreed in one
+  round then all implemented together:
+  - Now Playing's tile (`.np-art`) enlarged from 64px to 76px, matching the
+    bookmark-list tiles.
+  - Tapping it opens the *track* (`track.uri`) in Spotify, reusing the
+    bookmark tile's `.art-link`/`.art-badge` pattern — deliberately the
+    track, not the context (the bookmark tile's link opens the context).
+  - The `#bookmark-status` "Saved: …" message no longer sits there once a
+    different track/context is playing (`flashBookmarkStatus`/
+    `bookmarkStatusKey`/`currentPlaybackStatusKey()` in `main.js`, cleared
+    both on mismatch and after an 8s timer). Auto-bookmark and
+    follow-bookmark, previously silent, now show `Auto-saved: …` too.
+  - "Remove" moved out of `.bookmark-actions` into the bottom of the edit
+    panel, set apart by a divider (`.edit-panel-danger`) rather than
+    blended in as another control — Undo unchanged.
+  - A second `manifest.json` shortcut, "Bookmark now" (`?action=bookmark-now`),
+    alongside "Resume last played." Unlike that one, it needs
+    `currentSnapshot` populated first, so `startPolling()` now returns its
+    initial poll's promise for `enterApp()` to await before dispatching it.
+    Same iOS gap as the existing shortcut (manifest `shortcuts` unsupported
+    there).
+  - **Resume now checks the bookmarked track is still in its playlist/album**
+    before asking Spotify to play it there (`getContextTrackIds()` in
+    `spotifyApi.js`, `resolveResumeTarget()` in `main.js`) — falls back to
+    the top of the list, toasts, and corrects the bookmark's stored track
+    name/artists/uri/art (`correctBookmarkAfterMissingTrack()`) if it's
+    confirmed gone. Shipped simpler than originally scoped: no `snapshot_id`
+    caching (would need a new stored field + a `firestore.rules`
+    round-trip through the Firebase Console for no real gain, since without
+    caching there'd be nothing to gate) and no pagination beyond the first
+    page (100 tracks/playlist, 50/album, same cap `getContextTracks()`
+    already uses for "Pick a track") — a track past that cap is
+    inconclusive, not flagged missing, so this only ever *adds* a confirmed
+    detection, never a false one.
+
+    Live testing (2026-09-03) turned up something bigger than the original
+    scope: a bookmark for a Spotify-generated algorithmic playlist (a Daily
+    Mix, `37i9dQZF1E...`-prefixed) hit `getContextTrackIds`' `forbidden`
+    case (a `403`, deliberate — Spotify blocks third-party apps from
+    reading these tracklists at all, confirmed via the Network tab, not
+    just a dev-mode 404) — and, distinct from that, resuming it via
+    `PUT /me/player/play` with *any* offset (the bookmarked track, or even
+    just position 0) turned out to be unreliable enough to disrupt
+    whatever was already playing rather than degrade gracefully to "starts
+    at the top" as originally guessed. `resolveResumeTarget()` now returns
+    an `unverifiable` outcome for a confirmed-forbidden context, and
+    `onResume()` skips attempting `resumePlayback()` there entirely,
+    handing off to the existing "Open in Spotify" link (`showResumeTargets`
+    → `openInSpotifyLink()`, now shared with a new
+    `showUnverifiableResumeTarget()`) instead of risking the disruption.
+    First pass of this still reproduced the exact same failure, though —
+    `getContextTrackIds`/`getContextTracks`/`getContextMeta` all only
+    treated a `404` as "confirmed unreadable"; this Daily Mix's tracklist
+    actually 403s, which fell into the generic "unknown, fail open" case
+    instead, so the new skip-the-doomed-resume branch never fired. Fixed
+    by treating 403 the same as 404 everywhere (`isUnreadableStatus()` in
+    `spotifyApi.js`) — confirmed via a live Network-tab trace, not
+    guessed.
+
+    Once confirmed unreadable, `onResume()` now also *tries* a
+    `window.open()` straight to Spotify before falling back to the manual
+    link, so most people never have to tap it. Layered, not a replacement:
+    the manual link (`showUnverifiableResumeTarget()`) always still
+    renders too. This is a "user gesture" grace period that Chrome/Firefox
+    keep alive for a few seconds across an async gap, so it works there
+    reliably — but Safari specifically revokes it the moment code crosses
+    a real network fetch (which `resolveResumeTarget()`'s check just did),
+    so a *first* attempt on a given Daily Mix in Safari likely still needs
+    the manual tap; a repeat attempt on the same (by-then session-cached)
+    bookmark skips the real fetch and so isn't subject to that.
+
+    Also now tries one real in-app resume before falling back to that link
+    at all: `resumeContextBare()` (`spotifyApi.js`) sends `context_uri`
+    with no `offset`/`position_ms` key whatsoever, unlike `resumePlayback`
+    which always sends one — research says that's the shape most likely
+    to actually work for this content class, since *any* offset tends to
+    fail. Not guaranteed (still device-dependent), so it's wrapped in its
+    own try/catch inside `onResume()`'s `unverifiable` branch: success
+    skips straight to the normal "resumed" flow (extracted into a shared
+    `finishResumeSuccess()`, also used by the two ordinary paths); failure
+    falls through to the `window.open()` + manual-link fallback exactly as
+    before, now just as a second layer rather than the only one. Also
+    added, separately: every Resume force-refreshes the bookmark's
+    context name/cover (`refreshBookmarkInfoQuietly()`, factored out of
+    the manual ↻ button's `fetchBookmarkInfoPatch()`), since
+    `buildBookmarkFromSnapshot`'s "already has a name+cover, don't
+    re-fetch" cache — a deliberate steady-state-polling optimization —
+    was leaving a stale cover in place indefinitely even with
+    follow-bookmark on; Resume is infrequent enough that forcing it there
+    is cheap. Confirmed live: `resumeContextBare()` actually resumes
+    "Mix diario 5" in-app now, no fallback needed.
+  - **Predictive track-swap**, superseding the v62 catch-up-poll timer
+    rather than running alongside it: once armed (same "within two poll
+    intervals of the end" condition as v62), also pre-fetches what
+    Spotify's live queue says is next (`getQueue()`, `/me/player/queue` —
+    see `notes-spotify-api.md`) and, right at the expected boundary, swaps
+    the Now Playing card to it (`predictedDisplay` in `renderNowPlaying()`)
+    — driven by the local timer, no network round-trip at the critical
+    moment since the fetch happened at arm time, not swap time. The v62
+    catch-up poll (unchanged, ~1s later) then confirms or corrects it.
+    Skipped under repeat-track (`repeatState`, newly added to
+    `normalizePlaybackState()`) since the queue's next item is the next
+    *distinct* track even though the same one is about to repeat. Known,
+    accepted edge case: a regular poll landing in the ~1s gap between the
+    predictive swap and the confirming poll can briefly flash back to the
+    old track before the real transition lands — self-corrects within
+    another poll or two, same "occasional strange behavior" the feature was
+    proposed with. Confirmed live and working well.
+- **Backup & restore: file download/upload, additive to copy/paste (v63)** —
+  two new controls next to the existing ones, not replacing them.
+  "Download file" (`onExportDownload`) builds the same payload as "Export &
+  copy" (factored out into `buildExportJson()`, shared by both) and saves
+  it as `myspot-backup-<date>.json` via a Blob + `<a download>` link — the
+  portable approach, not the File System Access API's `showSaveFilePicker`
+  (Chromium-only, no iOS Safari support, which matters given this project's
+  investment in iOS). "Choose file…" is a `<label>` styled to match
+  `button.secondary` wrapping a hidden file input (`.file-label` in
+  `style.css`) — picking a file just reads its text into the existing paste
+  textarea (`onImportFileChosen`); the Import button and all its validation
+  are completely unchanged, so there's only one write path regardless of
+  how the JSON got into the box. Untested: how a triggered download
+  behaves inside an *installed* iOS home-screen PWA specifically (standalone
+  mode can differ from a Safari tab — sometimes opens inline for a manual
+  "Share → Save to Files" instead of a clean automatic download) — worth a
+  real device check before relying on it there.
 
 ## Left
 
@@ -304,6 +430,7 @@ natively — so low payoff.
 - **Size:** medium.
 - **Files:** `js/format.js` (`normalizePlaybackState`), `js/spotifyApi.js`,
   `js/main.js`.
+
 
 ## Not planned (considered, deliberately skipped)
 
